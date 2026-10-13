@@ -10,6 +10,10 @@
 #include "core/file_sys/vfs/vfs_vector.h"
 #include "core/loader/nextendo_s3_patches.h"
 
+#ifdef ENABLE_WEB_SERVICE
+#include "web_service/npln_patch_catalog.h"
+#endif
+
 namespace Loader::NextendoS3Patches {
 
 namespace {
@@ -35,16 +39,6 @@ constexpr std::array<u8, 29> kPeerHostnameFix{{
     0x00, 0x14, 0xDD, 0x80, 0x00, 0x04, // offset 0x0014DD80, 4 bytes
     0xF4, 0x03, 0x1F, 0x2A,
     0x45, 0x45, 0x4F, 0x46, // "EEOF"
-}};
-
-// Super Mario Party Jamboree 2.3.0, build D70CE1726C979E45ED4200E9C2B23B2A258FDC18.
-// Selects the gRPC certificate verification callback used by the tested client.
-// Flat 0xAD38BC: LDRB W10,[X21,#0x38] -> MOV W10,#1; IPS includes the NSO header.
-constexpr std::array<u8, 19> kMpjCertificate230{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x00, 0xAD, 0x39, 0xBC, 0x00, 0x04,
-    0x2A, 0x00, 0x80, 0x52,
-    0x45, 0x45, 0x4F, 0x46,
 }};
 
 // Super Mario Bros. Wonder v1.2.1, build FF773E90972D544EB79406EAA65396D53C43EFB9.
@@ -197,7 +191,6 @@ constexpr std::array<u8, 39> kXenobladeXPatchesData{{
 }};
 constexpr std::array<std::span<const u8>, 1> kXenobladeXPatches{{kXenobladeXPatchesData}};
 
-constexpr std::array<std::span<const u8>, 1> kMpj230Patches{{kMpjCertificate230}};
 
 // Monster Hunter Rise 16.0.2: Z-A's three checks in its older NPLN SDK, same instructions.
 constexpr std::array<u8, 39> kMonsterHunterRisePatchesData{{
@@ -209,7 +202,7 @@ constexpr std::array<u8, 39> kMonsterHunterRisePatchesData{{
 }};
 constexpr std::array<std::span<const u8>, 1> kMonsterHunterRisePatches{{kMonsterHunterRisePatchesData}};
 
-constexpr std::array<KnownBuild, 14> kKnownBuilds{{
+constexpr std::array<KnownBuild, 13> kKnownBuilds{{
     {"6830B3A12406CB4716FEC5ADDC35D3E2DC92D212", kSplatoon3PeerPatches},
     {"726D2B882DD9EF10F4A9D73EED088740630FB6C8", kSplatoon3CertOnlyPatches},
     {"28C4287AEE36F7499DA60F3E68B54C70DA382D75", kSplatoon3PeerPatches},
@@ -222,7 +215,6 @@ constexpr std::array<KnownBuild, 14> kKnownBuilds{{
     {"421C5411B487EB4D049DD065FEC9547773E8E598", kPokemonSvPatches}, // Scarlet 4.0.0
     {"B1F12FD919EAE86AB8A978317677E64BCE443D1F", kPokemonZaPatches}, // Legends: Z-A 2.0.2
     {"EC4ED46BBC4A9EBBE7CE0AF7A4A8EBBC09E5724A", kXenobladeXPatches}, // Xenoblade X 2.0.0
-    {"D70CE1726C979E45ED4200E9C2B23B2A258FDC18", kMpj230Patches}, // Jamboree 2.3.0
     {"C9A3DD7702075ECD90101F45553895822804D38F", kMonsterHunterRisePatches}, // MH Rise 16.0.2
 }};
 
@@ -234,12 +226,19 @@ FileSys::VirtualFile MakeIpsFile(std::span<const u8> bytes) {
 // Applies one patch, logging (not throwing) on failure -- a patch that can't apply shouldn't
 // stop the game from booting at all, just from working online, same as a bad exefs_patches file
 // would silently no-op today.
-std::vector<u8> ApplyOne(std::vector<u8> nso, std::span<const u8> ips_bytes, size_t index) {
+std::vector<u8> ApplyOne(std::vector<u8> nso, std::span<const u8> ips_bytes, size_t index, bool* applied = nullptr) {
+    if (applied) {
+        *applied = false;
+    }
+
     auto in_file = std::make_shared<FileSys::VectorVfsFile>(nso, "nso");
     const auto patched = FileSys::PatchIPS(in_file, MakeIpsFile(ips_bytes));
     if (patched == nullptr) {
         LOG_ERROR(Loader, "[Nextendo] NPLN: built-in patch #{} failed to apply", index);
         return nso;
+    }
+    if (applied) {
+        *applied = true;
     }
     return patched->ReadAllBytes();
 }
@@ -247,8 +246,26 @@ std::vector<u8> ApplyOne(std::vector<u8> nso, std::span<const u8> ips_bytes, siz
 } // namespace
 
 std::vector<u8> ApplyIfMatch(const std::array<u8, 0x20>& build_id, std::vector<u8> nso,
-                             std::string_view module_name) {
+                             std::string_view module_name, u64 title_id) {
     const auto build_id_raw = Common::HexToString(build_id);
+#ifdef ENABLE_WEB_SERVICE
+    const auto catalog = WebService::NplnPatchCatalog::Find(title_id, build_id_raw, module_name, nso);
+    if (catalog.authoritative) {
+        if (catalog.ips.empty()) {
+            return nso;
+        }
+
+        bool applied = false;
+        auto patched = ApplyOne(std::move(nso), catalog.ips, 0, &applied);
+        if (applied) {
+            LOG_INFO(Loader, "[Nextendo] NPLN: catalog patch {} version {} applied (build {})",
+                     catalog.id, catalog.version, build_id_raw);
+        }
+        return patched;
+    }
+#else
+    (void)title_id;
+#endif
     const auto build_id_hex = build_id_raw.substr(0, build_id_raw.find_last_not_of('0') + 1);
 
     for (const auto& known : kKnownBuilds) {

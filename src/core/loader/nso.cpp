@@ -26,6 +26,10 @@
 #include "core/loader/nso.h"
 #include "core/memory.h"
 
+#ifdef ENABLE_WEB_SERVICE
+#include "web_service/npln_patch_catalog.h"
+#endif
+
 #ifdef HAS_NCE
 #include "core/arm/nce/patcher.h"
 #endif
@@ -220,8 +224,15 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
         0x0100965017338000ULL, // Super Mario Party Jamboree
         0x0100B04011742000ULL, // Monster Hunter Rise
     }};
-    if (pm && std::find(kNplnPatchableTitles.begin(), kNplnPatchableTitles.end(),
-                        pm->GetTitleID()) != kNplnPatchableTitles.end()) {
+    bool catalog_patch = false;
+#ifdef ENABLE_WEB_SERVICE
+    if (pm) {
+        catalog_patch = WebService::NplnPatchCatalog::HasEntry(pm->GetTitleID(),
+            Common::HexToString(nso_header.build_id), name);
+    }
+#endif
+    if (pm && (catalog_patch || std::find(kNplnPatchableTitles.begin(), kNplnPatchableTitles.end(),
+                        pm->GetTitleID()) != kNplnPatchableTitles.end())) {
         std::span<u8> patchable_section(program_image.data() + module_start,
                                         program_image.size() - module_start);
         std::vector<u8> pi_header(sizeof(NSOHeader) + patchable_section.size());
@@ -230,7 +241,7 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
                     patchable_section.size());
 
         pi_header = Loader::NextendoS3Patches::ApplyIfMatch(nso_header.build_id,
-                                                            std::move(pi_header), name);
+                                                            std::move(pi_header), name, pm->GetTitleID());
 
         if (pi_header.size() >= sizeof(NSOHeader) &&
             pi_header.size() - sizeof(NSOHeader) == patchable_section.size()) {

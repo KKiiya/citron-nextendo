@@ -1,90 +1,60 @@
-name: Build Citron (Windows)
-
-concurrency:
-  group: build-windows-nightly-${{ github.ref }}
-  cancel-in-progress: true
+name: Build Citron NPLN catalog trial
 
 on:
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
+concurrency:
+  group: npln-catalog-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  check-version:
-    name: Check if new version available
+  test-catalog:
+    if: github.ref_name == 'npln-catalog'
     runs-on: ubuntu-latest
-    outputs:
-      should_build: ${{ steps.compare.outputs.should_build }}
-      new_hash: ${{ steps.head.outputs.hash_short }}
-      new_hash_full: ${{ steps.head.outputs.hash_full }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - name: Get current commit hash
-        id: head
+          persist-credentials: false
+      - name: Test signed patch manifests
         run: |
-          echo "hash_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "hash_full=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
-      - name: Get last built version
-        id: last_built
-        run: |
-          LAST_HASH=$(cat LATEST_VERSION | tr -d '\n' || echo "none")
-          echo "last_hash=$LAST_HASH" >> $GITHUB_OUTPUT
-      - name: Check if release exists
-        id: release_check
-        run: |
-          if gh release view nightly-windows --repo "${{ github.repository }}" > /dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-      - name: Compare versions
-        id: compare
-        run: |
-          if [ "${{ steps.head.outputs.hash_short }}" != "${{ steps.last_built.outputs.last_hash }}" ]; then
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          elif [ "${{ steps.release_check.outputs.exists }}" != "true" ]; then
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_build=false" >> $GITHUB_OUTPUT
-          fi
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev nlohmann-json3-dev
+          g++ -std=c++20 -Isrc test-files/npln_patch_catalog_test.cpp src/web_service/npln_patch_manifest.cpp -lcrypto -o /tmp/test-catalog
+          /tmp/test-catalog
+          curl --fail --silent --show-error --max-time 30 -A citron https://nextendo.network/service-catalog/v1/npln-patches -o /tmp/catalog.json
+          /tmp/test-catalog /tmp/catalog.json 'LAI+Pi+GZtj3p4DpNM5ORBraw1cbZCVSMFgUmAVWNeA='
 
-  build-clangtron:
-    name: "Citron Build (Windows clang-cl - x64)"
-    needs: [check-version]
-    if: needs.check-version.outputs.should_build == 'true'
+  build-windows:
+    needs: test-catalog
     runs-on: windows-latest
     timeout-minutes: 240
-
+    env:
+      CPM_SOURCE_CACHE: /d/npln-cpm
+      CITRON_USE_AUTO_UPDATER: 'OFF'
     steps:
+      - name: Enable long Git paths
+        shell: pwsh
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           submodules: recursive
           fetch-depth: 0
-
-      - name: Get Version
+      - name: Get version
         id: version
         shell: bash
-        run: |
-          VERSION=$(git rev-parse --short HEAD)
-          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-
-      # windows-latest ships VS2022 without the clang-cl component by default -- add it via
-      # the already-installed VS instance's own installer, matching what a fresh local
-      # "Desktop development with C++" + "C++ Clang Compiler for Windows" install gives you.
-      - name: Add clang-cl component to Visual Studio
+        run: echo "version=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Install Visual Studio clang-cl
         shell: powershell
         run: |
-          $vsInstaller = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
-          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -property installationPath
-          & $vsInstaller modify --installPath "$vsPath" --add Microsoft.VisualStudio.Component.VC.Llvm.Clang --quiet --norestart --wait
-          if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3010) { throw "VS modify failed with exit code $LASTEXITCODE" }
-
-      - name: Setup MSYS2 (CLANG64)
-        uses: msys2/setup-msys2@v2
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+          $installation = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -property installationPath
+          & $installer modify --installPath "$installation" --add Microsoft.VisualStudio.Component.VC.Llvm.Clang --quiet --norestart --wait
+          if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3010) { throw "Visual Studio installation failed: $LASTEXITCODE" }
+      - uses: msys2/setup-msys2@v2
         with:
           msystem: CLANG64
           update: true
@@ -93,147 +63,57 @@ jobs:
             mingw-w64-clang-x86_64-nasm
             mingw-w64-clang-x86_64-glslang
             mingw-w64-clang-x86_64-sccache
-
-      - name: Setup native Windows Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         id: python
         with:
-          python-version: "3.12"
-
-      - name: Verify Strawberry Perl is present
+          python-version: '3.12'
+      - name: Verify native Perl
         shell: bash
-        run: |
-          test -x "/c/Strawberry/perl/bin/perl.exe" || {
-            echo "::error::Strawberry Perl not found at the expected windows-latest image path."
-            exit 1
-          }
-
-      - name: Cache CPM sources (includes Qt/FFmpeg/OpenSSL)
-        uses: actions/cache@v4
+        run: test -x /c/Strawberry/perl/bin/perl.exe
+      - uses: actions/cache@v4
         with:
-          path: D:/a/_temp/msys64/home/**/.cache/cpm
-          key: clangcl-cpm-${{ runner.os }}-${{ hashFiles('CMakeModules/dependencies.cmake', 'vcpkg.json', 'build-clangtron-windows.sh') }}
-          restore-keys: |
-            clangcl-cpm-${{ runner.os }}-
-
-      - name: Setup Clangtron Build Environment
-        shell: "msys2 {0}"
+          path: D:/npln-cpm
+          key: npln-catalog-clangcl-${{ runner.os }}-${{ hashFiles('CMakeModules/dependencies.cmake', 'build-clangtron-windows.sh') }}
+          restore-keys: npln-catalog-clangcl-${{ runner.os }}-
+      - name: Prepare build environment
+        shell: msys2 {0}
         run: |
           chmod +x build-clangtron-windows.sh
-          PYTHON_EXECUTABLE="$(cygpath -u '${{ steps.python.outputs.python-path }}')" \
-            ./build-clangtron-windows.sh setup --compiler clang-cl
-
-      - name: Generate Nextendo client id header
-        shell: bash
+          PYTHON_EXECUTABLE="$(cygpath -u '${{ steps.python.outputs.python-path }}')" ./build-clangtron-windows.sh setup --compiler clang-cl
+      - name: Configure Nextendo client identity
+        shell: python
         env:
           NEXTENDO_CLIENT_ID: ${{ secrets.NEXTENDO_CLIENT_ID }}
         run: |
-          if [ -z "$NEXTENDO_CLIENT_ID" ]; then
-            echo "::error::NEXTENDO_CLIENT_ID secret is not set; the build would ship unauthenticated"
-            exit 1
-          fi
-          cat > src/web_service/nextendo_secrets.h <<EOF
-          #pragma once
-
-          namespace WebService::NextendoApi {
-          constexpr const char* AppClientId = "$NEXTENDO_CLIENT_ID";
-          }
-          EOF
-
-      - name: Build Citron (clang-cl)
-        shell: "msys2 {0}"
-        env:
-          MSYSTEM: CLANG64
+          import json
+          import os
+          from pathlib import Path
+          client_id = os.environ.get('NEXTENDO_CLIENT_ID', '')
+          if not client_id:
+              raise SystemExit('NEXTENDO_CLIENT_ID is required')
+          header = '#pragma once\n\nnamespace WebService::NextendoApi {\nconstexpr const char* AppClientId = ' + json.dumps(client_id) + ';\n}\n'
+          Path('src/web_service/nextendo_secrets.h').write_text(header, encoding='utf-8')
+      - name: Build Citron
+        shell: msys2 {0}
         run: |
           export CITRON_BUILD_TYPE=Nightly
           export PYTHON_EXECUTABLE="$(cygpath -u '${{ steps.python.outputs.python-path }}')"
-          ./build-clangtron-windows.sh use --compiler clang-cl --pgo none --lto none
-
-      - name: Package Windows Build (clang-cl)
-        shell: bash
+          ./build-clangtron-windows.sh use --compiler clang-cl --pgo none --lto none --no-unity --jobs 4 --no-tracy --no-tracy-alloc
+      - name: Verify and package trial
+        shell: pwsh
         run: |
-          mkdir -p dist
-          BIN_DIR="./build/clang-cl/use"
-          if [ ! -d "$BIN_DIR" ]; then
-            echo "::error::Build output not found at $BIN_DIR"
-            exit 1
-          fi
-          cd "$BIN_DIR"
-          rm -rf user backup update_result.txt update_helper_log.txt
-          7z a -tzip "${GITHUB_WORKSPACE}/dist/Citron-windows-nightly-${{ steps.version.outputs.VERSION }}-x64-clangcl.zip" .
-
-      - name: Upload Windows Build (clang-cl)
-        uses: actions/upload-artifact@v4
+          $cache = Get-Content build/clang-cl/.work/use/CMakeCache.txt
+          if (-not ($cache -match '^CITRON_USE_AUTO_UPDATER:BOOL=OFF$')) { throw 'Trial updater must be disabled' }
+          if (-not ($cache -match '^ENABLE_WEB_SERVICE:BOOL=ON$')) { throw 'Web service must be enabled' }
+          $output = Resolve-Path build/clang-cl/use
+          if (-not (Test-Path "$output/citron.exe")) { throw 'Citron executable is missing' }
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $zip = "$env:GITHUB_WORKSPACE/dist/Citron-npln-catalog-${{ steps.version.outputs.version }}-windows-x64.zip"
+          & 7z a -tzip $zip "$output/*" '-xr!CMakeFiles' '-x!CMakeCache.txt' '-x!build.ninja' '-x!cmake_install.cmake' '-xr!user' '-xr!backup' '-xr!nextendo_secrets.h'
+          if ($LASTEXITCODE -ne 0) { throw 'Packaging failed' }
+      - uses: actions/upload-artifact@v4
         with:
-          name: Citron-Windows-Nightly-ClangCL-x64
-          path: "dist/*.zip"
-
-  release:
-    if: ${{ github.ref_name == 'main' }}
-    name: "Release"
-    needs: [check-version, build-clangtron]
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: Citron-Windows-Nightly-ClangCL-x64
-          path: ./release-artifacts
-      - name: Get Version from Filename
-        shell: bash
-        run: |
-          FILENAME=$(basename "$(ls ./release-artifacts/Citron-windows-nightly-*-x64-clangcl.zip)")
-          VERSION=${FILENAME#Citron-windows-nightly-}
-          VERSION=${VERSION%-x64-clangcl.zip}
-          echo "APP_VERSION=${VERSION}" >> $GITHUB_ENV
-      - name: Delete Previous Release
-        run: gh release delete "nightly-windows" --repo "${{ github.repository }}" --cleanup-tag -y || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Set Build Date
-        run: echo "BUILD_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
-      - name: Release Artifacts
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "Continuous Build (Windows Nightly: ${{ env.APP_VERSION }})"
-          tag_name: "nightly-windows"
-          prerelease: false
-          files: |
-            release-artifacts/*-x64-clangcl.zip
-          body: |
-            **Citron Commit:** [`${{ needs.check-version.outputs.new_hash }}`](https://github.com/${{ github.repository }}/commit/${{ needs.check-version.outputs.new_hash_full }})
-
-            **Build Details:**
-            - Platform: Windows (x64)
-            - Toolchain: clang-cl (native Windows, CPM dependencies)
-            - Build Type: Nightly
-            - Date: ${{ env.BUILD_DATE }}
-      - name: Update LATEST_VERSION
-        if: success()
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          echo "${{ env.APP_VERSION }}" > LATEST_VERSION
-          git add LATEST_VERSION
-          git commit -m "Update LATEST_VERSION to ${{ env.APP_VERSION }} [skip ci]" || exit 0
-          for i in {1..5}; do
-            git pull --rebase origin main && git push && break || sleep 2
-          done
-
-      - name: Post to Discord
-        if: success()
-        run: |
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/tag/nightly-windows"
-          DATE=$(date +'%Y-%m-%d')
-          WEBHOOK_URL="${{ secrets.DISCORD_WEBHOOK }}"
-          if [ -z "$WEBHOOK_URL" ]; then
-            echo "DISCORD_WEBHOOK is not set; skipping Discord notification."
-            exit 0
-          fi
-          curl -H "Content-Type: application/json" \
-               -d "{\"content\":\"🪟 **New Windows Build Available!**\n\n📦 **Version:** \`${{ env.APP_VERSION }}\`\n📅 **Date:** ${DATE}\n🔧 **Toolchain:** clang-cl (native)\n🔗 **Download:** $DOWNLOAD_URL\"}" \
-               "$WEBHOOK_URL"
+          name: Citron-npln-catalog-Windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 7

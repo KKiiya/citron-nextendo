@@ -35,6 +35,7 @@
 
 #ifdef ENABLE_WEB_SERVICE
 #include "web_service/nextendo_api.h"
+#include "web_service/npln_patch_catalog.h"
 #endif
 
 NextendoController::NextendoController(Core::System& system_, QWidget* main_window_,
@@ -43,6 +44,7 @@ NextendoController::NextendoController(Core::System& system_, QWidget* main_wind
       game_invites(new NextendoGameInvites(system_, this)) {
 #ifdef ENABLE_WEB_SERVICE
     Common::NextendoFriends::SetNameResolver(&WebService::NextendoApi::GetNameByPid);
+    WebService::NplnPatchCatalog::RefreshAsync();
 #endif
     friend_poll_timer.setInterval(20000);
     connect(&friend_poll_timer, &QTimer::timeout, this, &NextendoController::PollFriends);
@@ -395,6 +397,7 @@ void NextendoController::NotifyFriendRequestSent(const QString& friend_code) {
 
 void NextendoController::PollFriends() {
 #ifdef ENABLE_WEB_SERVICE
+    WebService::NplnPatchCatalog::RefreshAsync();
     if (!Common::NextendoAccount::IsLinked()) {
         return;
     }

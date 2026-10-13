@@ -8,6 +8,10 @@ add_library(web_service STATIC
     mk8d_country_flags.h
     nextendo_api.cpp
     nextendo_api.h
+    npln_patch_catalog.cpp
+    npln_patch_catalog.h
+    npln_patch_manifest.cpp
+    npln_patch_manifest.h
     population_scraper_client.cpp
     population_scraper_client.h
     precompiled_headers.h
