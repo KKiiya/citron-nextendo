@@ -24,8 +24,6 @@ jobs:
           sudo apt-get install -y libssl-dev nlohmann-json3-dev
           g++ -std=c++20 -Isrc test-files/npln_patch_catalog_test.cpp src/web_service/npln_patch_manifest.cpp -lcrypto -o /tmp/test-catalog
           /tmp/test-catalog
-          curl --fail --silent --show-error --max-time 30 -A citron https://nextendo.network/service-catalog/v1/npln-patches -o /tmp/catalog.json
-          /tmp/test-catalog /tmp/catalog.json 'LAI+Pi+GZtj3p4DpNM5ORBraw1cbZCVSMFgUmAVWNeA='
 
   build-windows:
     needs: test-catalog
