@@ -40,7 +40,8 @@ A companion patch is included at docs/patches/ryujinx-1.9.3-home-presence.patch.
 It preserves HOME's actual ID and online status, with an explicit Ryujinx display
 label in the existing opaque presence field, which older servers already relay.
 Other system programs retain their prior behavior. The patch is prepared for
-review, not applied to a running Ryujinx or submitted as a Ryujinx PR. Its actual
+review and is now submitted as draft Ryujinx PR #60. It is not applied to the
+friend's running Ryujinx. Its actual
 DoPublish method was compiled with controlled boundaries: HOME, ordinary game
 and other system-program cases passed with a fake HTTP transport. A full
 Ryujinx runtime has not been built or tested with the patch.
@@ -90,3 +91,22 @@ https://github.com/NextendoNetwork/citron-nextendo/actions/runs/38775171099
 
 Native visual acceptance of the new fallback remains pending. No existing app
 instance was closed or replaced for this review. Banner rendering remains pending.
+
+## Follow-up: live ambiguous presence confirmed
+
+After the owner reproduced the still-empty activity card in beta54.3.6, a
+read-only targeted query to the already authorized friends API confirmed generic
+platform `emulator`, empty app_id/jeu/app_detail, and no client identity field.
+Only schema and display-presence fields were inspected; no account credentials
+or opaque presence data were printed or persisted. The request did not change
+any account, friendship or presence.
+
+The required sender fix is submitted for review:
+https://github.com/NextendoNetwork/Ryujinx-Nextendo/pull/60
+Head: 3aa1141db6387bdfa22c8fae74fde6c93a03c251 (draft).
+The reproducible fake-HTTP publisher test is included in that PR.
+
+Citron beta54.3.6 cannot identify a specific client or HOME from those empty
+fields. Updating only the receiving Citron does not update the friend's sender.
+A Ryujinx build containing the sender fix and live native acceptance are still
+needed before claiming the reproduced card is resolved.
