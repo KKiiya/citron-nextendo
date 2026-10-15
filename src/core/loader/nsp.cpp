@@ -251,4 +251,12 @@ ResultStatus AppLoader_NSP::ReadNSOModules(Modules& modules) {
     return secondary_loader->ReadNSOModules(modules);
 }
 
+ResultStatus AppLoader_NSP::ReadMainBuildId(Core::System& system,
+                                          std::array<u8, 0x20>& build_id) {
+    if (!secondary_loader) {
+        return ResultStatus::ErrorNotImplemented;
+    }
+    return secondary_loader->ReadMainBuildId(system, build_id);
+}
+
 } // namespace Loader

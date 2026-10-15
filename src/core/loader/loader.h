@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <array>
 #include <functional>
 #include <iosfwd>
 #include <memory>
@@ -313,6 +314,11 @@ public:
      * @return ResultStatus result of function
      */
     virtual ResultStatus ReadManualRomFS(FileSys::VirtualFile& out_file) {
+        return ResultStatus::ErrorNotImplemented;
+    }
+
+    // Resolve the main NSO build before loading code, respecting the selected update.
+    virtual ResultStatus ReadMainBuildId(Core::System& system, std::array<u8, 0x20>& build_id) {
         return ResultStatus::ErrorNotImplemented;
     }
 

@@ -1,0 +1,38 @@
+name: Test signed NPLN catalog
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/test-npln-catalog.yml'
+      - 'src/citron/main.cpp'
+      - 'src/citron/nextendo_controller.cpp'
+      - 'src/core/loader/**'
+      - 'src/web_service/npln_patch*'
+      - 'src/web_service/CMakeLists.txt'
+      - 'test-files/npln_patch*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libfmt-dev nlohmann-json3-dev python3-cryptography
+          git submodule update --init externals/cpp-httplib
+      - name: Verify signed manifests and guards
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror -Isrc test-files/npln_patch_catalog_test.cpp src/web_service/npln_patch_manifest.cpp -lcrypto -o /tmp/test-npln-catalog
+          /tmp/test-npln-catalog
+      - name: Verify catalog-only loader selection
+        run: /usr/bin/python3 test-files/npln_patch_loader_test.py
+      - name: Verify HTTP, discovery, persistence and offline cache
+        run: /usr/bin/python3 test-files/npln_patch_runtime_test.py --include externals/cpp-httplib

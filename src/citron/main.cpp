@@ -118,6 +118,7 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QDirIterator>
+#include <QFutureWatcher>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QProgressDialog>
@@ -207,6 +208,7 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 #ifdef ENABLE_WEB_SERVICE
 #include "web_service/mk8d_country_flags.h"
 #include "web_service/nextendo_api.h"
+#include "web_service/npln_patch_catalog.h"
 #include "web_service/ssbu_mod_installer.h"
 #endif
 #include "common/string_util.h"
@@ -2651,6 +2653,41 @@ bool GMainWindow::LoadROM(const QString& filename, Service::AM::FrontendAppletPa
         return false;
     }
 
+#ifdef ENABLE_WEB_SERVICE
+    // Prepare after the previous session has stopped and before any new NSO is loaded.
+    // The worker finishes before loading the ROM, so every module sees the same snapshot.
+    WebService::NplnPatchCatalog::EndGame();
+    {
+        QProgressDialog progress(tr("Checking online patches..."), QString{}, 0, 0, this);
+        progress.setWindowModality(Qt::ApplicationModal);
+        progress.setCancelButton(nullptr);
+        progress.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+
+        QFutureWatcher<void> watcher;
+        connect(&watcher, &QFutureWatcher<void>::finished, &progress, &QDialog::accept);
+        const auto file = Core::GetGameFileFromPath(vfs, filename.toUtf8().constData());
+        auto loader = Loader::GetLoader(*system, file, params.program_id, params.program_index);
+        auto future = QtConcurrent::run([this, &loader, title_id = current_title_id] {
+            WebService::NplnPatchCatalog::WaitForTitleIndex();
+            if (!WebService::NplnPatchCatalog::IsCompatibleTitle(title_id)) {
+                return;
+            }
+            std::array<u8, 0x20> build_id{};
+            if (!loader || loader->ReadMainBuildId(*system, build_id) !=
+                               Loader::ResultStatus::Success) {
+                LOG_WARNING(Frontend, "[Nextendo] Could not identify main build for online patch");
+                return;
+            }
+            WebService::NplnPatchCatalog::PrepareForGame(title_id, Common::HexToString(build_id));
+        });
+        watcher.setFuture(future);
+        if (!future.isFinished()) {
+            progress.exec();
+        }
+        future.waitForFinished();
+    }
+#endif
+
     system->SetFilesystem(vfs);
 
     if (params.launch_type == Service::AM::LaunchType::FrontendInitiated) {
@@ -2733,6 +2770,9 @@ bool GMainWindow::LoadROM(const QString& filename, Service::AM::FrontendAppletPa
             }
             break;
         }
+#ifdef ENABLE_WEB_SERVICE
+        WebService::NplnPatchCatalog::EndGame();
+#endif
         return false;
     }
     current_game_path = filename;
@@ -3160,6 +3200,10 @@ void GMainWindow::OnEmulationStopped() {
         emu_thread->wait();
         emu_thread.reset();
     }
+
+#ifdef ENABLE_WEB_SERVICE
+    WebService::NplnPatchCatalog::EndGame();
+#endif
 
     if (shutdown_dialog) {
         shutdown_dialog->deleteLater();

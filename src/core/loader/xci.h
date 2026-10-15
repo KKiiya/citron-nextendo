@@ -45,6 +45,9 @@ public:
 
     LoadResult Load(Kernel::KProcess& process, Core::System& system) override;
 
+    ResultStatus ReadMainBuildId(Core::System& system,
+                                 std::array<u8, 0x20>& build_id) override;
+
     ResultStatus VerifyIntegrity(std::function<bool(size_t, size_t)> progress_callback) override;
 
     ResultStatus ReadRomFS(FileSys::VirtualFile& out_file) override;

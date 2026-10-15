@@ -83,6 +83,33 @@ TEST_CASE("HostMemory: Full unmap", "[common]") {
     mem.Map(0x6000, 0, 0x16000, PERMS, HEAP);
 }
 
+TEST_CASE("HostMemory: Reuse arena after process shutdown", "[common][host_memory_relaunch]") {
+    HostMemory mem(2_MiB, 16_MiB);
+    auto* const backing = mem.BackingBasePointer();
+    volatile u8* const arena = mem.VirtualBasePointer();
+
+    // Model residual sparse and mirrored views from a stopped process. Reuse
+    // the same allocation, as System::ShutdownMainProcess does between games.
+    for (u8 session = 1; session <= 4; ++session) {
+        mem.Map(0x5000, 0x1000, 0x3000, PERMS, HEAP);
+        mem.Map(0x20000, 0x1000, 0x1000, PERMS, HEAP);
+        backing[0x1000] = session;
+        REQUIRE(arena[0x5000] == session);
+        REQUIRE(arena[0x20000] == session);
+        mem.Unmap(0x6000, 0x1000, HEAP);
+
+        mem.Unmap(0, mem.VirtualSize(), HEAP);
+        // Repeated cleanup is valid, including shutdown without a running game.
+        mem.Unmap(0, mem.VirtualSize(), HEAP);
+
+        mem.Map(0x4000, 0x9000, 0x10000, PERMS, HEAP);
+        backing[0xa000] = static_cast<u8>(session + 10);
+        REQUIRE(arena[0x5000] == session + 10);
+        REQUIRE(backing[0x1000] == session);
+        mem.Unmap(0, mem.VirtualSize(), HEAP);
+    }
+}
+
 TEST_CASE("HostMemory: Right out of bounds unmap", "[common]") {
     HostMemory mem(BACKING_SIZE, VIRTUAL_SIZE);
     mem.Map(0x0000, 0, 0x4000, PERMS, HEAP);

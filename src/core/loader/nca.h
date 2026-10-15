@@ -39,6 +39,9 @@ public:
 
     LoadResult Load(Kernel::KProcess& process, Core::System& system) override;
 
+    ResultStatus ReadMainBuildId(Core::System& system,
+                                 std::array<u8, 0x20>& build_id) override;
+
     ResultStatus VerifyIntegrity(std::function<bool(size_t, size_t)> progress_callback) override;
 
     ResultStatus ReadRomFS(FileSys::VirtualFile& dir) override;
@@ -50,6 +53,8 @@ public:
     ResultStatus ReadNSOModules(Modules& modules) override;
 
 private:
+    FileSys::VirtualDir ResolveExeFS(Core::System& system);
+
     std::unique_ptr<FileSys::NCA> nca;
     std::unique_ptr<AppLoader_DeconstructedRomDirectory> directory_loader;
 };

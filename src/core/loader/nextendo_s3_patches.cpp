@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: Copyright 2026 citron Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <algorithm>
 #include <span>
 #include <string_view>
 
@@ -11,93 +10,16 @@
 #include "core/file_sys/vfs/vfs_vector.h"
 #include "core/loader/nextendo_s3_patches.h"
 
+#ifdef ENABLE_WEB_SERVICE
+#include "web_service/npln_patch_catalog.h"
+#endif
+
 namespace Loader::NextendoS3Patches {
 
 namespace {
 
-// Bytes match NextendoNetwork/Ryujinx-Nextendo's NextendoS3Patches.cs. Offsets are Ryujinx's
-// stored constants as-is (reverted from a +0x100 adjustment -- see project_splatoon3_connectivity
-// memory for why that theory didn't pan out against a packet capture).
-
-// Bypasses the certificate check: the game pins Nintendo's certificates and refuses ours.
-// 19 bytes, fingerprint 219ee0cfea21fd4b...
-constexpr std::array<u8, 19> kCertificateBypass{{
-    0x49, 0x50, 0x53, 0x33, 0x32,       // "IPS32"
-    0x00, 0x15, 0x7B, 0x20, 0x00, 0x04, // offset 0x00157B20, 4 bytes
-    0x2A, 0x00, 0x80, 0x52,
-    0x45, 0x45, 0x4F, 0x46, // "EEOF"
-}};
-
-// Fixes the hostname the game presents to its peer. 29 bytes, fingerprint aa8a453637092346...
-constexpr std::array<u8, 29> kPeerHostnameFix{{
-    0x49, 0x50, 0x53, 0x33, 0x32,       // "IPS32"
-    0x00, 0x14, 0xE1, 0xB0, 0x00, 0x04, // offset 0x0014E1B0, 4 bytes
-    0x1F, 0x20, 0x03, 0xD5,
-    0x00, 0x14, 0xDD, 0x80, 0x00, 0x04, // offset 0x0014DD80, 4 bytes
-    0xF4, 0x03, 0x1F, 0x2A,
-    0x45, 0x45, 0x4F, 0x46, // "EEOF"
-}};
-
-// Super Mario Party Jamboree 2.3.0, build D70CE1726C979E45ED4200E9C2B23B2A258FDC18.
-// Selects the gRPC certificate verification callback used by the tested client.
-// Flat 0xAD38BC: LDRB W10,[X21,#0x38] -> MOV W10,#1; IPS includes the NSO header.
-constexpr std::array<u8, 19> kMpjCertificate230{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x00, 0xAD, 0x39, 0xBC, 0x00, 0x04,
-    0x2A, 0x00, 0x80, 0x52,
-    0x45, 0x45, 0x4F, 0x46,
-}};
-
-// Super Mario Bros. Wonder v1.2.1, build FF773E90972D544EB79406EAA65396D53C43EFB9.
-constexpr std::array<u8, 19> kCertificateWonder121{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x00, 0xB0, 0x36, 0x28, 0x00, 0x04, // offset 0x00B03628, 4 bytes
-    0x2A, 0x00, 0x80, 0x52,
-    0x45, 0x45, 0x4F, 0x46,
-}};
-
-constexpr std::array<u8, 29> kPeerNameWonder121{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x00, 0xB0, 0x2C, 0xBC, 0x00, 0x04, // offset 0x00B02CBC, 4 bytes
-    0x1F, 0x20, 0x03, 0xD5,
-    0x00, 0xB0, 0x2B, 0xA4, 0x00, 0x04, // offset 0x00B02BA4, 4 bytes
-    0x1F, 0x20, 0x03, 0xD5,
-    0x45, 0x45, 0x4F, 0x46,
-}};
-
-// Nintendo 64 - Nintendo Classics v4.2.0, build 44EFA84EE9C32B466EA27215D3D91DFD0EBAE625.
-constexpr std::array<u8, 19> kCertificateN64v420{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x00, 0x29, 0xDB, 0xE0, 0x00, 0x04, // offset 0x0029DBE0, 4 bytes
-    0x2A, 0x00, 0x80, 0x52,
-    0x45, 0x45, 0x4F, 0x46,
-}};
-
-constexpr std::array<u8, 29> kPeerHostnameFixN64v420{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x00, 0x29, 0x42, 0x70, 0x00, 0x04, // offset 0x00294270, 4 bytes
-    0x1F, 0x20, 0x03, 0xD5,
-    0x00, 0x29, 0x3E, 0x40, 0x00, 0x04, // offset 0x00293E40, 4 bytes
-    0xF4, 0x03, 0x1F, 0x2A,
-    0x45, 0x45, 0x4F, 0x46,
-}};
-
-// METAL GEAR SOLID: Peace Walker - Master Collection Version, build BCA1A793E41A4836EF3C03286B18E816EEC62338.
-constexpr std::array<u8, 19> kCertificatePeaceWalker{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x00, 0xB2, 0xA1, 0xC0, 0x00, 0x04, // offset 0x00B2A1C0, 4 bytes
-    0x2A, 0x00, 0x80, 0x52,
-    0x45, 0x45, 0x4F, 0x46,
-}};
-
-constexpr std::array<u8, 29> kPeerHostnameFixPeaceWalker{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x00, 0xB2, 0x08, 0x50, 0x00, 0x04, // offset 0x00B20850, 4 bytes
-    0x1F, 0x20, 0x03, 0xD5,
-    0x00, 0xB2, 0x04, 0x20, 0x00, 0x04, // offset 0x00B20420, 4 bytes
-    0xF4, 0x03, 0x1F, 0x2A,
-    0x45, 0x45, 0x4F, 0x46,
-}};
+// NPLN game patches are supplied only by the verified catalog.
+// CTR uses Demonware and retains its independent built-in patches.
 
 // Crash Team Racing Nitro-Fueled v1.0.15, build 1C689518406930512C13DDF4217E7676.
 // Replaces the embedded Demonware RSA public key so signed Nextendo auth replies verify.
@@ -143,88 +65,10 @@ struct KnownBuild {
     std::span<const std::span<const u8>> patches;
 };
 
-constexpr std::array<std::span<const u8>, 2> kSplatoon3PeerPatches{{kCertificateBypass, kPeerHostnameFix}};
-constexpr std::array<std::span<const u8>, 1> kSplatoon3CertOnlyPatches{{kCertificateBypass}};
-constexpr std::array<std::span<const u8>, 2> kWonder121Patches{{kCertificateWonder121, kPeerNameWonder121}};
-constexpr std::array<std::span<const u8>, 2> kN64v420Patches{{kCertificateN64v420, kPeerHostnameFixN64v420}};
-constexpr std::array<std::span<const u8>, 2> kPeaceWalkerPatches{{kCertificatePeaceWalker, kPeerHostnameFixPeaceWalker}};
 constexpr std::array<std::span<const u8>, 2> kCtrPatches{{kCtrServerTrust, kCtrFriendLookup}};
 
-// NSO build ID -> which patches it needs. An unrecognized build gets nothing, exactly like an
-// .ips file whose name didn't match any program. Splatoon 3 v11.3.0's build was verified
-// byte-identical to v11.2.0's at all three patch offsets before adding it here.
-// Overcooked! 2 v1.0.19: verified certificate and peer patches.
-constexpr std::array<u8, 39> kOvercooked2PatchesData{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x00, 0x62, 0xF9, 0x70, 0x00, 0x04, // certificate check (NSO header included)
-    0x2A, 0x00, 0x80, 0x52,
-    0x00, 0x71, 0xA7, 0x10, 0x00, 0x04, // peer hostname checks
-    0x1F, 0x20, 0x03, 0xD5,
-    0x00, 0x71, 0xA2, 0xE0, 0x00, 0x04,
-    0xF4, 0x03, 0x1F, 0x2A,
-    0x45, 0x45, 0x4F, 0x46,
-}};
-constexpr std::array<std::span<const u8>, 1> kOvercooked2Patches{{kOvercooked2PatchesData}};
-
-// Pokémon Violet 3.0.1/4.0.0 and Scarlet 4.0.0: pinned certificate and both peer-name rejections,
-// at the same offsets in both games.
-constexpr std::array<u8, 39> kPokemonSvPatchesData{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x00, 0x1F, 0xEF, 0xA0, 0x00, 0x04, 0x2A, 0x00, 0x80, 0x52,
-    0x00, 0x1F, 0xE5, 0xB4, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
-    0x00, 0x1F, 0xE6, 0x58, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
-    0x45, 0x45, 0x4F, 0x46,
-}};
-constexpr std::array<std::span<const u8>, 1> kPokemonSvPatches{{kPokemonSvPatchesData}};
-
-// Pokémon Legends: Z-A 2.0.2: the same three checks as Scarlet/Violet, matched instruction for
-// instruction (cert LDRB W10,[X21,#0x38] -> MOV W10,#1; peer CBNZ W0 and B.NE -> NOP).
-constexpr std::array<u8, 39> kPokemonZaPatchesData{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x02, 0x03, 0xB4, 0xC0, 0x00, 0x04, 0x2A, 0x00, 0x80, 0x52,
-    0x02, 0x03, 0xAA, 0xB8, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
-    0x02, 0x03, 0xAB, 0xBC, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
-    0x45, 0x45, 0x4F, 0x46,
-}};
-constexpr std::array<std::span<const u8>, 1> kPokemonZaPatches{{kPokemonZaPatchesData}};
-
-// Xenoblade Chronicles X: Definitive Edition 2.0.0: Z-A's three checks, same instructions.
-constexpr std::array<u8, 39> kXenobladeXPatchesData{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x00, 0xD5, 0x7B, 0x80, 0x00, 0x04, 0x2A, 0x00, 0x80, 0x52,
-    0x00, 0xD5, 0x71, 0x78, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
-    0x00, 0xD5, 0x72, 0x7C, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
-    0x45, 0x45, 0x4F, 0x46,
-}};
-constexpr std::array<std::span<const u8>, 1> kXenobladeXPatches{{kXenobladeXPatchesData}};
-
-constexpr std::array<std::span<const u8>, 1> kMpj230Patches{{kMpjCertificate230}};
-
-// Monster Hunter Rise 16.0.2: Z-A's three checks in its older NPLN SDK, same instructions.
-constexpr std::array<u8, 39> kMonsterHunterRisePatchesData{{
-    0x49, 0x50, 0x53, 0x33, 0x32,
-    0x02, 0x03, 0x3C, 0x04, 0x00, 0x04, 0x2A, 0x00, 0x80, 0x52,
-    0x02, 0x03, 0x2F, 0x28, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
-    0x02, 0x03, 0x2F, 0xE8, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
-    0x45, 0x45, 0x4F, 0x46,
-}};
-constexpr std::array<std::span<const u8>, 1> kMonsterHunterRisePatches{{kMonsterHunterRisePatchesData}};
-
-constexpr std::array<KnownBuild, 14> kKnownBuilds{{
-    {"6830B3A12406CB4716FEC5ADDC35D3E2DC92D212", kSplatoon3PeerPatches},
-    {"726D2B882DD9EF10F4A9D73EED088740630FB6C8", kSplatoon3CertOnlyPatches},
-    {"28C4287AEE36F7499DA60F3E68B54C70DA382D75", kSplatoon3PeerPatches},
-    {"FF773E90972D544EB79406EAA65396D53C43EFB9", kWonder121Patches},
-    {"44EFA84EE9C32B466EA27215D3D91DFD0EBAE625", kN64v420Patches},
-    {"BCA1A793E41A4836EF3C03286B18E816EEC62338", kPeaceWalkerPatches},
+constexpr std::array<KnownBuild, 1> kKnownBuilds{{
     {"1C689518406930512C13DDF4217E7676", kCtrPatches},
-    {"616640F27B9362502D1CE10BF01EB9A6", kOvercooked2Patches},
-    {"709BFD66115298640155FCC4979DBA151C7CC79A", kPokemonSvPatches}, // Violet 3.0.1 / 4.0.0
-    {"421C5411B487EB4D049DD065FEC9547773E8E598", kPokemonSvPatches}, // Scarlet 4.0.0
-    {"B1F12FD919EAE86AB8A978317677E64BCE443D1F", kPokemonZaPatches}, // Legends: Z-A 2.0.2
-    {"EC4ED46BBC4A9EBBE7CE0AF7A4A8EBBC09E5724A", kXenobladeXPatches}, // Xenoblade X 2.0.0
-    {"D70CE1726C979E45ED4200E9C2B23B2A258FDC18", kMpj230Patches}, // Jamboree 2.3.0
-    {"C9A3DD7702075ECD90101F45553895822804D38F", kMonsterHunterRisePatches}, // MH Rise 16.0.2
 }};
 
 FileSys::VirtualFile MakeIpsFile(std::span<const u8> bytes) {
@@ -235,12 +79,19 @@ FileSys::VirtualFile MakeIpsFile(std::span<const u8> bytes) {
 // Applies one patch, logging (not throwing) on failure -- a patch that can't apply shouldn't
 // stop the game from booting at all, just from working online, same as a bad exefs_patches file
 // would silently no-op today.
-std::vector<u8> ApplyOne(std::vector<u8> nso, std::span<const u8> ips_bytes, size_t index) {
+std::vector<u8> ApplyOne(std::vector<u8> nso, std::span<const u8> ips_bytes, size_t index, bool* applied = nullptr) {
+    if (applied) {
+        *applied = false;
+    }
+
     auto in_file = std::make_shared<FileSys::VectorVfsFile>(nso, "nso");
     const auto patched = FileSys::PatchIPS(in_file, MakeIpsFile(ips_bytes));
     if (patched == nullptr) {
-        LOG_ERROR(Loader, "[Nextendo] NPLN: built-in patch #{} failed to apply", index);
+        LOG_ERROR(Loader, "[Nextendo] Online patch #{} failed to apply", index);
         return nso;
+    }
+    if (applied) {
+        *applied = true;
     }
     return patched->ReadAllBytes();
 }
@@ -250,24 +101,27 @@ std::vector<u8> ApplyOne(std::vector<u8> nso, std::span<const u8> ips_bytes, siz
 std::vector<u8> ApplyIfMatch(const std::array<u8, 0x20>& build_id, std::vector<u8> nso,
                              std::string_view module_name, u64 title_id) {
     const auto build_id_raw = Common::HexToString(build_id);
-    const auto build_id_hex = build_id_raw.substr(0, build_id_raw.find_last_not_of('0') + 1);
-
-    // US direct launches lack the collection launcher's -lan argument. The game's
-    // fallback is Japanese (6), but US RomFS only contains the MLG sound bank.
-    // Default to English (0) only for this verified US build; explicit languages
-    // still follow the existing parser. Offsets include the 0x100-byte NSO header.
-    if (title_id == 0x010099801C4FA000ULL && module_name == "main" &&
-        build_id_hex == "BCA1A793E41A4836EF3C03286B18E816EEC62338") {
-        constexpr size_t offset = 0x5F998;
-        constexpr std::array<u8, 4> expected{0xD4, 0x00, 0x80, 0x52};
-        if (nso.size() >= offset + expected.size() &&
-            std::equal(expected.begin(), expected.end(), nso.begin() + offset)) {
-            nso[offset] = 0x14; // mov w20, #6 -> mov w20, #0
-            LOG_INFO(Loader, "[Nextendo] Peace Walker US: direct-launch language fallback applied");
-        } else {
-            LOG_ERROR(Loader, "[Nextendo] Peace Walker US: unexpected startup instruction; patch skipped");
+#ifdef ENABLE_WEB_SERVICE
+    const auto catalog = WebService::NplnPatchCatalog::Find(title_id, build_id_raw, module_name, nso);
+    if (catalog.authoritative) {
+        if (catalog.ips.empty()) {
+            return nso;
         }
+
+        bool applied = false;
+        auto patched = ApplyOne(std::move(nso), catalog.ips, 0, &applied);
+        if (applied) {
+            LOG_INFO(Loader, "[Nextendo] NPLN: catalog patch {} version {} applied (build {})",
+                     catalog.id, catalog.version, build_id_raw);
+        }
+        return patched;
     }
+#endif
+    // Never fall back to built-in bytes for an NPLN game or another module.
+    if (title_id != 0x0100F9F00C696000ULL || module_name != "main") {
+        return nso;
+    }
+    const auto build_id_hex = build_id_raw.substr(0, build_id_raw.find_last_not_of('0') + 1);
 
     for (const auto& known : kKnownBuilds) {
         if (build_id_hex != known.build_id_hex) {
@@ -278,24 +132,12 @@ std::vector<u8> ApplyIfMatch(const std::array<u8, 0x20>& build_id, std::vector<u
             nso = ApplyOne(std::move(nso), known.patches[i], i);
         }
 
-        LOG_INFO(Loader, "[Nextendo] NPLN: {} built-in patch(es) applied (build {})",
+        LOG_INFO(Loader, "[Nextendo] CTR: {} built-in patch(es) applied (build {})",
                  known.patches.size(), build_id_hex);
         return nso;
     }
 
-    // Rien ne correspond. Sur « main », c'est fatal pour l'en ligne : on le dit fort, une fois.
-    if (module_name == "main") {
-        LOG_ERROR(Loader,
-                  "[Nextendo] NPLN : AUCUN correctif integre pour ce build ({}). L'en ligne "
-                  "NE FONCTIONNERA PAS : l'epinglage de certificat du jeu reste actif, la "
-                  "connexion "
-                  "NPLN echouera en 2321-4992 apres une poignee de main TLS pourtant reussie. "
-                  "Cause la plus frequente : l'ExeFS de la mise a jour n'est pas applique et c'est "
-                  "l'executable du JEU DE BASE qui tourne. Verifiez que la mise a jour est bien "
-                  "installee ET active pour ce titre.",
-                  build_id_hex);
-    }
-
+    LOG_WARNING(Loader, "[Nextendo] No online patch available for CTR build {}", build_id_raw);
     return nso;
 }
 

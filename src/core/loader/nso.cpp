@@ -27,6 +27,10 @@
 #include "core/loader/nso.h"
 #include "core/memory.h"
 
+#ifdef ENABLE_WEB_SERVICE
+#include "web_service/npln_patch_catalog.h"
+#endif
+
 #ifdef HAS_NCE
 #include "core/arm/nce/patcher.h"
 #endif
@@ -211,28 +215,17 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
         }
     }
 
-    // [Nextendo] Built-in NPLN patches (certificate-pinning bypass, peer hostname fix) run
-    // unconditionally here, independent of should_patch_nso above: they must apply even when no
-    // mod patches exist, and must never go through the mod-patch path at all, since Splatoon 3
-    // refuses to boot with any mod enabled (see main.cpp) and these patches need to survive that
-    // ban rather than be blocked by it.
-    constexpr std::array<u64, 13> kNplnPatchableTitles{{
-        0x0100C2500FC20000ULL, // Splatoon 3
-        0x010015100B514000ULL, // Super Mario Bros. Wonder
-        0x0100C9A00ECE6000ULL, // Nintendo 64 - Nintendo Classics
-        0x0100C6F01C4F8000ULL, // METAL GEAR SOLID: Peace Walker - Master Collection Version (JP)
-        0x010099801C4FA000ULL, // METAL GEAR SOLID: Peace Walker - Master Collection Version (US)
-        0x0100F9F00C696000ULL, // Crash Team Racing Nitro-Fueled
-        0x01006FD0080B2000ULL, // Overcooked! 2
-        0x0100A3D008C5C000ULL, // Pokémon Scarlet
-        0x01008F6008C5E000ULL, // Pokémon Violet
-        0x0100F43008C44000ULL, // Pokémon Legends: Z-A
-        0x0100453019AA8000ULL, // Xenoblade Chronicles X: Definitive Edition
-        0x0100965017338000ULL, // Super Mario Party Jamboree
-        0x0100B04011742000ULL, // Monster Hunter Rise
-    }};
-    if (pm && std::find(kNplnPatchableTitles.begin(), kNplnPatchableTitles.end(),
-                        pm->GetTitleID()) != kNplnPatchableTitles.end()) {
+    // Apply the launch-fixed signed catalog entry independently of user mod patches.
+    // CTR/Demonware retains its separate built-in fallback.
+    constexpr u64 CtrTitleId = 0x0100F9F00C696000ULL;
+    bool catalog_patch = false;
+#ifdef ENABLE_WEB_SERVICE
+    if (pm) {
+        catalog_patch = WebService::NplnPatchCatalog::HasEntry(pm->GetTitleID(),
+            Common::HexToString(nso_header.build_id), name);
+    }
+#endif
+    if (pm && (catalog_patch || pm->GetTitleID() == CtrTitleId)) {
         std::span<u8> patchable_section(program_image.data() + module_start,
                                         program_image.size() - module_start);
         std::vector<u8> pi_header(sizeof(NSOHeader) + patchable_section.size());
@@ -248,7 +241,7 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
             std::copy(pi_header.begin() + sizeof(NSOHeader), pi_header.end(),
                       patchable_section.data());
         } else {
-            LOG_ERROR(Loader, "[Nextendo] NPLN built-in patch changed the image size "
+            LOG_ERROR(Loader, "[Nextendo] Online patch changed the image size "
                               "unexpectedly; skipped");
         }
     }
@@ -350,6 +343,17 @@ AppLoader_NSO::LoadResult AppLoader_NSO::Load(Kernel::KProcess& process, Core::S
 
 ResultStatus AppLoader_NSO::ReadNSOModules(Modules& out_modules) {
     out_modules = this->modules;
+    return ResultStatus::Success;
+}
+
+ResultStatus AppLoader_NSO::ReadMainBuildId(Core::System& system,
+                                          std::array<u8, 0x20>& build_id) {
+    NSOHeader header{};
+    if (!file || file->ReadObject(&header) != sizeof(header) ||
+        IdentifyType(file) != FileType::NSO) {
+        return ResultStatus::ErrorLoadingNSO;
+    }
+    build_id = header.build_id;
     return ResultStatus::Success;
 }
 

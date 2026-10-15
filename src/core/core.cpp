@@ -511,6 +511,17 @@ struct System::Impl {
         // Kernel is the VERY last thing to go
         kernel.Shutdown();
 
+#ifdef _WIN32
+        if (device_memory) {
+            // The backing arena survives game shutdown. A forced process exit can leave
+            // fastmem views mapped after the kernel has discarded its page tables. Those
+            // views must become placeholders again before the next game maps this arena.
+            // All guest, service and GPU threads have stopped at this point.
+            auto& buffer = device_memory->buffer;
+            buffer.Unmap(0, buffer.VirtualSize(), false);
+        }
+#endif
+
         stop_event = {};
         Network::RestartSocketOperations();
         arp_manager.ResetAll();
