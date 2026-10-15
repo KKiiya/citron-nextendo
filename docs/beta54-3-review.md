@@ -1,0 +1,114 @@
+# Beta54.3 implementation review
+
+This draft submits the implementation shipped to Soul for review by the Citron
+maintainers. It is broader than the former documentation-only Classics PR15.
+Do not treat this branch as approval to merge or deploy.
+
+## Source and artifact boundary
+
+- Historical client base: `38e110fa46c1b6c5822f5b15db95852bbfd8b278`.
+- Imported source commit: `24801b787` (191 changed/added text files).
+- Source input: `Citron-build54.3-source.zip`, shipped with the beta54.3 package.
+- Windows executable SHA-256:
+  `ed6d0c357c6588adb115012dcfd992dd5c9960f3f9adde7eb0fa97b18f3d5ef1`.
+- Final portable beta54.3 ZIP SHA-256:
+  `1d90990c28118c071c2397e02eb49603387a621625e30b99965abd54a6faaef9`.
+- Publication-only differences from that source snapshot: normalize added tabs
+  and trailing blank lines in the BSD/SSL and handwritten HOME NAT bridge files;
+  replace the developer's absolute FetchContent directory with
+  `${CMAKE_BUILD_ROOT}/_deps`. No other runtime changes are claimed here.
+- This PR adds the review document and six standalone regression checks after
+  the snapshot import. It excludes the later, unvalidated build55 lifetime,
+  profile-photo and HOME presence-icon experiments.
+
+The branch deliberately preserves the tested historical base. `main` has newer
+rendering/network changes; reconcile those changes and rebuild before merging.
+The beta's existing build evidence is not validation of a rebase onto main.
+
+## Suggested review order
+
+| Area | Entry points | Behavior / review focus |
+| --- | --- | --- |
+| qlaunch process and applet lifecycle | `src/core/hle/service/am/`, `src/core/core.*`, kernel worker/process changes | Guest system applets, HOME foreground/display/input ownership, process winding, reboot and termination ordering. Verify lock order and suspended-game lifetime. |
+| HOME software library | `src/core/hle/service/ns/`, NCM/AOC, registered cache, `game_list_worker.cpp` | Distinguish XCI game-card content and NSP digital content; watch configured folders and external update/DLC directories, including subdirectories. New base games were tested; update/DLC refresh needs more acceptance. |
+| Internet and connection test | `network_interface.*`, NIFM, SSL/BSD, `ctest_response.h`, settings server | Host adapter information; connection-test field adaptation and real transfer completion. Speeds are measurements, not estimates based on PC specifications. |
+| Last NAT in HOME | `last_nat_cache.h`, `home_nat_patch.S/.h`, NSO loader | Persist only completed NAT results with a network fingerprint; invalidate on network change. The handwritten bridge is restricted by HOME title/build/signatures. Other firmware builds need explicit testing. |
+| Friends and profile | friend/ACC services, `nextendo_friends.*`, `nextendo_friend_code.h`, `mypage_member_label.h` | Native friend code/history, presence and account-created timestamp. The label says account membership rather than friendship acceptance; the current replacement text is Spanish and needs localization review. |
+| Themes, mouse and GPU bounds | boot manager, HID touch resources, shader cache, `device_address_page_table.h` | Correct mouse event interpretation, per-applet touch isolation, cache format/bounds and the 39-bit device address space. These do not certify every homebrew application. |
+| Setup and homebrew | `setup_wizard.inc`, `homebrew_setup.inc`, main/input/hotkeys/settings | Keys and firmware import, external content folders, controller/adapter choices, Nextendo browser sign-in, Discord opt-in and HOME shortcuts. No hardware preset page or BCAT/Smash page in the wizard. |
+| Homebrew return | `window_system.cpp`, `library_applet_creator.cpp`, `applet.h` | Ctrl+H / Player1 L+R+Minus opens and returns; HOME requests return on the AM observer. Terminate the marked homebrew applet and prune it before normal parent operation. Plus retains its own application behavior. Finish writes before leaving a tool. |
+| BCAT | `bcat_cache_tools.h`, BCAT services and Nextendo controller | Game-specific cache routing and staged replacement that retains the previous cache on failure. Online gameplay acceptance is separate. |
+| Additional beta diagnostics | audio/UNO opt-ins and `uch_account_transport.h`, socket/TLS hooks | Older opt-in lab transport/diagnostic work included in the beta source. Not proof of a production UCH deployment. Review these independently from qlaunch fixes. |
+
+## Validation available
+
+- The beta54.3 Windows build linked with MSYS2 clang64 and Ninja, ending in
+  `Deployment complete`. This is the historical beta executable, not a fresh
+  full build of current main or another OS.
+- Six standalone checks were freshly built with Clang 22.1.8 on Windows and
+  passed on October 15, 2026: HTTP/JSON field adaptation and malformed responses;
+  concurrent domain-object allocation/lookup/close and reentrant destruction;
+  synthetic MSBT/Yaz0 bounds and unrelated-text preservation; NAT persistence,
+  completion gate, corrupt records and changed networks; native friend-code
+  formatting; BCAT staged replacement and failure preservation.
+- An initial sandbox run could not load the MSYS2 runtime DLLs (`0xc0000135`).
+  The same six executables passed when run with access to the runtime. That
+  environment error was not counted as a product test failure or a passing run.
+- The HOME/hbmenu shortcut round trip was observed directly: the child process
+  terminated successfully, its caller link was cleared, and HOME responded to
+  selection afterwards. Soul confirmed physical-controller return after
+  correcting an initially mistaken failure report.
+- Owner-confirmed earlier checks: NXThemes reboot returns to responsive HOME;
+  connection test finishes with download/upload speeds; last NAT remains
+  visible; friend code/activity and account membership date appear; a newly
+  copied base game appears without restarting; wizard sign-in opens the browser;
+  homebrew tools are available without repeating completed setup.
+- No personal profiles, credentials, keys, firmware, games, raw logs or homebrew
+  binaries are committed. Official homebrew download versions/hashes remain in
+  source. The handwritten NAT bridge includes its assembly source.
+
+## Still unresolved / not certified
+
+1. Returning from Splatoon 3 to HOME has produced a freeze/crash. A deferred IPC
+   lifetime issue was captured, but its later proposed build55 fix is excluded.
+2. Native profile image editing and the missing HOME presence icon still need
+   work; they are not repaired by this PR.
+3. Themezer/NXThemes mouse and transition coverage needs broader regression
+   testing, despite the owner reports after the earlier input fixes.
+4. Repeat update/DLC version refresh, removal, slow copies and rapid folder
+   changes; the owner's base-game arrival test is not sufficient for all cases.
+5. Hardware/OS/firmware breadth, full online gameplay/BCAT compatibility and
+   public-network UCH/Classics acceptance remain separate work.
+6. Review the OAuth public-client configuration, cross-platform host adapter
+   handling, firmware-specific hooks, hardcoded labels, opt-in lab paths and
+   packaging policy before production use.
+
+## Reproduce the standalone checks
+
+Install a C++20 compiler, CMake, Threads and nlohmann-json headers. These tests do
+not require console firmware or account data, and are independent of the full
+emulator build:
+
+```sh
+cmake -S tests/beta54_3 -B build/beta54_3-tests -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/beta54_3-tests
+ctest --test-dir build/beta54_3-tests --output-on-failure
+```
+
+For a non-system JSON install, pass
+`-DNLOHMANN_JSON_INCLUDE_DIR=/path/to/json/include`. On Windows, make the compiler
+runtime DLLs available in PATH. Test assertions remain enabled in Release.
+
+## Packaging and sign-in
+
+The source PR does not upload the portable executable archive. Package the
+public desktop OAuth client identifier as `nextendo-public-client-id.txt` next
+to `citron.exe`, or configure `CITRON_NEXTENDO_CLIENT_ID`. This identifier is
+public application metadata; do not distribute account/session files. The
+setup helper can prepare missing official tools from verified extracted copies
+under `homebrew/unpacked`, or download pinned releases when those are absent.
+Preserve the existing portable `user` directory when upgrading a tester.
+
+AI assistance: OpenAI Codex helped implement, investigate, organize and validate
+these changes. Manual gameplay/UI results above are explicitly owner-reported
+where applicable. Existing upstream work and license notices are retained.
