@@ -31,3 +31,12 @@ foreach(name ctest-response domain-object-table member-label last-nat-cache nati
         add_test(NAME ${name} COMMAND ${name})
     endif()
 endforeach()
+
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(profile_test_flags)
+if(BETA54_3_SANITIZERS)
+    list(APPEND profile_test_flags --sanitizers)
+endif()
+add_test(NAME profile-ipc-latency COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/profile-ipc-latency.py
+    --compiler ${CMAKE_CXX_COMPILER} ${profile_test_flags})

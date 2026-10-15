@@ -299,7 +299,7 @@ bool ResolveProfileName(u64 pid, std::string& out_name) {
         out_name = it->name;
         return true;
     }
-    out_name = Common::NextendoFriends::ResolveName(pid, 1500);
+    out_name = Common::NextendoFriends::ResolveName(pid, 0);
     return !out_name.empty();
 }
 
@@ -539,10 +539,6 @@ public:
         if (invitation_worker.joinable()) {
             invitation_worker.join();
         }
-        // nnSdk closes an async session only after storing its result.
-        if (is_async_session) {
-            completion_event->Signal();
-        }
         service_context.CloseEvent(completion_event);
     }
 
@@ -552,20 +548,21 @@ public:
     // but individually forgetting to signal completion_event in any one of them leaves the
     // guest polling forever, so signal it centrally after every command in this class instead.
     Result HandleSyncRequest(Kernel::KServerSession& session, HLERequestContext& context) override {
+        if (context.GetCommand() != 0) {
+            completion_event->Clear();
+        }
         const Result result = ServiceFrameworkBase::HandleSyncRequest(session, context);
-        if (!is_async_session && !context.GetIsDeferred()) {
+        // Getting the event subscribes to completion; it does not complete a job.
+        // Signal after the actual command, even when the event was requested first.
+        // Waiting until session destruction makes the client wait on its own close.
+        if (context.GetCommand() != 0 && !context.GetIsDeferred()) {
             completion_event->Signal();
         }
-        ++handled_requests;
         return result;
     }
 
     void GetCompletionEvent(HLERequestContext& ctx) {
         LOG_DEBUG(Service_Friend, "GetCompletionEvent called");
-        // nnSdk's AsyncContextInternal opens a fresh session and asks for this first.
-        if (handled_requests == 0) {
-            is_async_session = true;
-        }
         IPC::ResponseBuilder rb{ctx, 2, 1};
         rb.Push(ResultSuccess);
         rb.PushCopyObjects(completion_event->GetReadableEvent());
@@ -741,8 +738,6 @@ private:
 
     KernelHelpers::ServiceContext service_context;
     Kernel::KEvent* completion_event;
-    u64 handled_requests{};
-    bool is_async_session{};
     std::shared_ptr<Module> friend_module;
     std::mutex invitation_mutex;
     std::optional<std::string> invitation_result;

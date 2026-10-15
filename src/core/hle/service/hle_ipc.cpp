@@ -124,9 +124,14 @@ HLERequestContext::HLERequestContext(Kernel::KernelCore& kernel_, Core::Memory::
                                      Kernel::KThread* thread_)
     : server_session(server_session_), thread(thread_), kernel{kernel_}, memory{memory_} {
     cmd_buf[0] = 0;
+    // Deferred requests outlive the guest's wait and must retain its thread,
+    // which also retains the owner process and its memory/page table.
+    if (thread) thread->Open();
 }
 
-HLERequestContext::~HLERequestContext() = default;
+HLERequestContext::~HLERequestContext() {
+    if (thread) thread->Close();
+}
 
 void HLERequestContext::ParseCommandBuffer(u32_le* src_cmdbuf, bool incoming) {
     IPC::RequestParser rp(src_cmdbuf);
@@ -266,7 +271,7 @@ Result HLERequestContext::PopulateFromIncomingCommandBuffer(u32_le* src_cmdbuf) 
 
 Result HLERequestContext::WriteToOutgoingCommandBuffer() {
     auto current_offset = handles_offset;
-    R_UNLESS(thread != nullptr, ResultUnknown);
+    R_UNLESS(thread != nullptr && !thread->IsTerminationRequested(), IPC::ResultSessionClosed);
     auto* const owner_process_ptr = thread->GetOwnerProcess();
     R_UNLESS(owner_process_ptr != nullptr, ResultUnknown);
     auto& owner_process = *owner_process_ptr;
@@ -306,7 +311,8 @@ Result HLERequestContext::WriteToOutgoingCommandBuffer() {
     }
 
     // Copy the translated command buffer back into the thread's command buffer area.
-    memory.WriteBlock(thread->GetTlsAddress(), cmd_buf.data(), write_size * sizeof(u32));
+    R_UNLESS(memory.WriteBlock(thread->GetTlsAddress(), cmd_buf.data(), write_size * sizeof(u32)),
+             IPC::ResultSessionClosed);
 
     return ResultSuccess;
 }

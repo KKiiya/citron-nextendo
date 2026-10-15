@@ -181,6 +181,8 @@ public:
     explicit HLERequestContext(Kernel::KernelCore& kernel, Core::Memory::Memory& memory,
                                Kernel::KServerSession* session, Kernel::KThread* thread);
     ~HLERequestContext();
+    HLERequestContext(const HLERequestContext&) = delete;
+    HLERequestContext& operator=(const HLERequestContext&) = delete;
 
     /// Returns a pointer to the IPC command buffer for this request.
     [[nodiscard]] u32* CommandBuffer() {
@@ -394,7 +396,7 @@ private:
     std::array<u32, IPC::COMMAND_BUFFER_LENGTH> cmd_buf;
     Kernel::KServerSession* server_session{};
     Kernel::KHandleTable* client_handle_table{};
-    Kernel::KThread* thread{};
+    Kernel::KThread* thread{}; // Owning reference held until this request is destroyed.
 
     std::vector<Handle> incoming_move_handles;
     std::vector<Handle> incoming_copy_handles;

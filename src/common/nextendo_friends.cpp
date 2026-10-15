@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 citron Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <chrono>
 #include <future>
 #include <mutex>
@@ -223,6 +224,7 @@ namespace {
 std::mutex g_name_mutex;
 std::function<std::string(u64)> g_name_resolver;
 std::unordered_map<u64, std::shared_future<std::string>> g_names;
+std::unordered_map<u64, std::chrono::steady_clock::time_point> g_name_attempts;
 } // Anonymous namespace
 
 void SetNameResolver(std::function<std::string(u64)> resolver) {
@@ -242,6 +244,19 @@ std::string ResolveName(u64 pid, int timeout_ms) {
                             it->second.wait_for(std::chrono::seconds{0}) == std::future_status::ready &&
                             it->second.get().empty();
         if (it == g_names.end() || failed) {
+            const auto now = std::chrono::steady_clock::now();
+            if (failed && now - g_name_attempts[pid] < std::chrono::seconds{60}) {
+                return {};
+            }
+            // Profile batches can contain hundreds of uncached IDs. Never turn one
+            // IPC into that many network waits or simultaneous background requests.
+            const auto pending = std::count_if(g_names.begin(), g_names.end(), [](const auto& entry) {
+                return entry.second.wait_for(std::chrono::seconds{0}) != std::future_status::ready;
+            });
+            if (pending >= 8) {
+                return {};
+            }
+            g_name_attempts[pid] = now;
             it = g_names.insert_or_assign(pid, std::async(std::launch::async, g_name_resolver, pid).share())
                      .first;
         }
