@@ -42,3 +42,14 @@ version directories. The Windows focused suite passed 10/10; Linux normal and
 ASan/UBSan also passed [run 38702831600](https://github.com/NextendoNetwork/citron-nextendo/actions/runs/38702831600).
 The owner deferred the normal-startup manual check, which is still pending.
 The desktop smoke recorded above applies to the earlier reconciled binary only.
+
+## Profile candidate beta54.3.3
+
+Runtime source `b1d7b6261`; executable SHA-256
+`48db169a7701af536bdaae59c10688259c6dec77248282417fef574348163b16`.
+Full Windows build/deployment and 11 focused checks passed. Linux normal and
+ASan/UBSan passed run 38766376345; catalog/loader/runtime passed run 38766376327.
+The owner completed three profile/HOME cycles with their physical controller
+and confirmed responsiveness without freezing or closing. Community-tester
+hardware confirmation remains separate. This does not pass photo editing,
+HOME presence icon rendering or the Splatoon 3 suspension scenario.

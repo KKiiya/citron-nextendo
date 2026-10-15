@@ -54,5 +54,8 @@ request-lifetime fix above; unrelated build55 photo/icon experiments are absent.
 Executable SHA-256: `48db169a7701af536bdaae59c10688259c6dec77248282417fef574348163b16`.
 Clean runtime ZIP SHA-256: `739ee26766341cebddd56f71b5175a08a81c99a7c059421c538d4d6d2bd465c0`.
 Archive content/integrity and compiled public desktop OAuth metadata checks passed.
-The executable booted the native HOME lock screen. The owner is testing repeated
-profile/HOME transitions with their physical controller; outcome is pending.
+The executable booted the native HOME lock screen. The owner completed the requested
+three profile -> HOME -> profile cycles with their physical controller and confirmed
+"Responde sin congelarse". No long wait or exit was reported during those cycles.
+This is local owner acceptance; the community tester's separate machine should
+repeat the same scenario. Photo editing and the missing HOME icon are not covered.

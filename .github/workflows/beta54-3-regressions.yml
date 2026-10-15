@@ -26,7 +26,7 @@ jobs:
           path: build/fmt-reference
           persist-credentials: false
       - name: Install JSON headers
-        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
+        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev qt6-base-dev
       - name: Configure
         run: cmake -S tests/beta54_3 -B build/beta54_3-tests -DCMAKE_BUILD_TYPE=Debug -DBETA54_3_SANITIZERS=${{ matrix.sanitizers }} -DFMT_INCLUDE_DIR=${{ github.workspace }}/build/fmt-reference/include
       - name: Build

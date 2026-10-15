@@ -27,6 +27,7 @@
 #include <QNetworkRequest>
 #include <QSaveFile>
 #include <QTemporaryDir>
+#include "citron/util/temporary_directory.h"
 #include <QDirIterator>
 #include <QSignalBlocker>
 #include "core/internal_network/network_interface.h"

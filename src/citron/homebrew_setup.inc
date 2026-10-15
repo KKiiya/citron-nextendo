@@ -101,8 +101,8 @@ bool Prepare(QWidget* parent, const Extract& extract, bool show_success = true) 
                 }
                 if (!verified()) return QObject::tr("Official package is missing, unavailable, or failed verification.");
                 if (QString::fromUtf8(asset.file).endsWith(QStringLiteral(".zip"))) {
-                    QTemporaryDir staging;
-                    if (!staging.isValid()) return QObject::tr("Could not create the temporary extraction folder.");
+                    QTemporaryDir staging(Citron::TemporaryDirectoryTemplate());
+                    if (!staging.isValid()) return QObject::tr("Could not create the temporary extraction folder: %1").arg(staging.errorString());
                     const QString zip = staging.path() + QStringLiteral("/release.zip");
                     QFile file(zip);
                     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size())
