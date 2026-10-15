@@ -21,7 +21,7 @@ Do not treat this branch as approval to merge or deploy.
   the snapshot import. It excludes the later, unvalidated build55 lifetime,
   profile-photo and HOME presence-icon experiments.
 
-## Main reconciliation — October 15, 2026
+## Main reconciliation â€” October 15, 2026
 
 The initial review preserved the historical beta exactly. The branch now merges
 `82af7ba5e71dd23cc4b2ad491695bf2b55ffb296` from main. All five conflicts were
@@ -110,13 +110,18 @@ runtime DLLs available in PATH. Test assertions remain enabled in Release.
 
 ## Packaging and sign-in
 
-The source PR does not upload the portable executable archive. Package the
-public desktop OAuth client identifier as `nextendo-public-client-id.txt` next
-to `citron.exe`, or configure `CITRON_NEXTENDO_CLIENT_ID`. This identifier is
-public application metadata; do not distribute account/session files. The
-setup helper can prepare missing official tools from verified extracted copies
-under `homebrew/unpacked`, or download pinned releases when those are absent.
-Preserve the existing portable `user` directory when upgrading a tester.
+The source PR does not upload executable archives. Clean beta54.3.2 packages
+contain the executable, required runtime dependencies and licenses. Source ZIP,
+checksums and provenance are separate downloads. No launchers, forms, Markdown,
+homebrew cache, profiles or portable `user` directory are included.
+
+Build with `CITRON_NEXTENDO_DESKTOP_CLIENT_ID` (CMake cache/environment) to embed
+the public desktop OAuth application identifier. No sidecar is required for
+normal sign-in. The developer environment/sidecar override remains compatible.
+This identifier is public application metadata; never distribute account files.
+Homebrew preparation downloads pinned releases and verifies their hashes onto
+the active virtual SD. Existing deliberate portable directories remain supported;
+unpack the normal beta into a new directory to use shared Roaming settings.
 
 AI assistance: OpenAI Codex helped implement, investigate, organize and validate
 these changes. Manual gameplay/UI results above are explicitly owner-reported
@@ -167,3 +172,20 @@ installation or network gameplay on this candidate.
 
 See [the manual acceptance matrix](beta54-3-acceptance.md) for the remaining
 release gates. Keep this PR draft for maintainer review and community testing.
+
+## Clean beta54.3.2 distribution
+
+The Windows full build from `164f171576a21d65270a93ffbc1b5946b35730ba`
+passed and completed runtime deployment. Executable SHA-256:
+`a7177801e650991e7903ec2a4e1ec99be90e62b1e8ef1d3ad8239791ac941c37`.
+Runtime ZIP SHA-256:
+`c0cba530c4d8df98c2331c5078696fddb97cf15056fa31ce2528ca3702f38abd`.
+
+The Windows focused suite passed 10/10. A synthetic packaging fixture verified
+that user data, homebrew caches, source, launchers and report documents are
+excluded while runtime files remain. Final ZIP integrity and content checks
+passed. Public OAuth desktop metadata was verified present in the executable;
+this verifies compilation, not a fresh account authorization round trip.
+Original developer source files and executable were restored and hash checked.
+No new desktop/gameplay test was run: the owner deferred their Roaming check.
+Tester feedback is requested as a brief English Discord reply, outside the ZIP.

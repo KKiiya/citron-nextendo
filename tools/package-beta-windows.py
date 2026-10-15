@@ -17,6 +17,7 @@ def main():
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--source-revision", default="HEAD")
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", args.version):
         parser.error("Invalid version label")
@@ -44,10 +45,10 @@ def main():
     shutil.copy2(repo / "LICENSE", app / "LICENSE")
     if not (app / "LICENSES").exists():
         shutil.copytree(repo / "LICENSES", app / "LICENSES")
-    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    revision = subprocess.check_output(["git", "rev-parse", "--verify", args.source_revision + "^{commit}"], cwd=repo, text=True).strip()
     # Keep source/provenance separate from the runtime users extract and launch.
     source_archive = args.output.resolve() / ("Citron-Beta" + args.version + "-source.zip")
-    subprocess.run(["git", "archive", "--format=zip", "HEAD", "-o",
+    subprocess.run(["git", "archive", "--format=zip", revision, "-o",
                     str(source_archive)], cwd=repo, check=True)
     assert not (app / "user").exists()
     hashes = {p.relative_to(app).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()

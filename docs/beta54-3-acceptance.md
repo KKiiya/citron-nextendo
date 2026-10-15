@@ -1,6 +1,6 @@
 # Reconciled beta: manual acceptance record
 
-Use a backup of the tester's own portable user directory. Record the executable
+Back up the tester's active Citron data directory. Record the executable
 hash, backend version, firmware, OS/GPU, game/version and controller. Do not attach
 keys, account tokens, saves or unredacted logs to a public issue.
 
@@ -32,3 +32,13 @@ lifetime fix. Keep the PR draft until maintainers approve its remaining scope.
 Tested Windows candidate SHA-256:
 `76b8e6dedce3664d3202ead0ec6eb3ec0d73e6fd08972b9729b4ffe40578cfe3`.
 Normal desktop shutdown also completed. No game was launched in this smoke run.
+
+## Normal Windows distribution
+
+Beta54.3.1 and later omit portable data and use the existing Windows path manager:
+without a deliberate `user` folder they share `%APPDATA%\citron`. The additional
+setup-startup test covers legacy configuration and launches from two executable
+version directories. The Windows focused suite passed 10/10; Linux normal and
+ASan/UBSan also passed [run 38702831600](https://github.com/NextendoNetwork/citron-nextendo/actions/runs/38702831600).
+The owner deferred the normal-startup manual check, which is still pending.
+The desktop smoke recorded above applies to the earlier reconciled binary only.
