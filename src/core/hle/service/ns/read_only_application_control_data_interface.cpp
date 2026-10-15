@@ -3,10 +3,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
 #include "common/settings.h"
+#include "common/nextendo_friends.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/vfs/vfs.h"
@@ -107,16 +109,21 @@ struct CachedControl {
 };
 
 std::mutex g_control_cache_mutex;
+u64 g_control_cache_generation{};
 std::unordered_map<u64, std::pair<std::chrono::steady_clock::time_point, CachedControl>>
     g_control_cache;
 
 CachedControl GetCachedControl(Core::System& system, u64 application_id) {
     const auto now = std::chrono::steady_clock::now();
+    u64 generation{};
 
     {
         std::lock_guard lock{g_control_cache_mutex};
+        generation = g_control_cache_generation;
         const auto it = g_control_cache.find(application_id);
-        if (it != g_control_cache.end()) {
+        if (it != g_control_cache.end() &&
+            ((it->second.second.has_nacp && it->second.second.has_icon) ||
+             now - it->second.first < std::chrono::seconds{5})) {
             return it->second.second;
         }
     }
@@ -138,12 +145,46 @@ CachedControl GetCachedControl(Core::System& system, u64 application_id) {
         control.second->Read(result.icon_bytes.data(), result.icon_bytes.size());
     }
 
+    // MyPage can display friends' games that are absent from this console's library.
+    // Use only metadata supplied by Nextendo, and keep installed NACP/icon data preferred.
+    if (const auto remote = Common::NextendoFriends::GetApplicationMetadata(application_id)) {
+        if (!result.has_nacp) {
+            FileSys::RawNACP nacp{};
+            for (auto& language : nacp.language_entries) {
+                std::memcpy(language.application_name.data(), remote->name.data(),
+                            std::min(remote->name.size(), language.application_name.size() - 1));
+            }
+            nacp.supported_languages = 0xFFFF;
+            nacp.presence_group_id = application_id;
+            const auto* bytes = reinterpret_cast<const u8*>(&nacp);
+            result.nacp_bytes.assign(bytes, bytes + sizeof(nacp));
+            result.language_entry = nacp.language_entries[0];
+            result.has_nacp = true;
+        }
+        if (!result.has_icon && !remote->icon.empty()) {
+            result.icon_bytes = remote->icon;
+            result.has_icon = true;
+        }
+    }
+
     std::lock_guard lock{g_control_cache_mutex};
-    g_control_cache[application_id] = {now, result};
+    // A read that started before a catalog swap must not repopulate the cache
+    // with metadata from the previous snapshot.
+    if (generation == g_control_cache_generation) {
+        g_control_cache[application_id] = {now, result};
+    }
     return result;
 }
 
 } // namespace
+
+void InvalidateApplicationControlCache() {
+    std::lock_guard lock{g_control_cache_mutex};
+    LOG_INFO(Service_NS, "Library control metadata invalidated: cached_titles={}",
+             g_control_cache.size());
+    ++g_control_cache_generation;
+    g_control_cache.clear();
+}
 
 // IAsyncValue implementation for ListApplicationTitle
 // https://switchbrew.org/wiki/NS_services#ListApplicationTitle
@@ -221,6 +262,10 @@ IReadOnlyApplicationControlDataInterface::IReadOnlyApplicationControlDataInterfa
         {13, &IReadOnlyApplicationControlDataInterface::ListApplicationTitle, "ListApplicationTitle"},
         {14, &IReadOnlyApplicationControlDataInterface::ListApplicationIcon, "ListApplicationIcon"},
         {19, D<&IReadOnlyApplicationControlDataInterface::GetApplicationControlData3>, "GetApplicationControlData"},
+        // MyPage's 21.x SDK uses command 20. Its additional request byte occupies
+        // padding before the application id; the output byte occupies the low
+        // byte of the second word. Both layouts are compatible with command 19.
+        {20, D<&IReadOnlyApplicationControlDataInterface::GetApplicationControlData3>, "GetApplicationControlData"},
     };
     // clang-format on
 

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/hle/service/bcat/news/news_service.h"
+#include "core/hle/kernel/k_auto_object.h"
+#include "core/hle/service/bcat/news/download_context.h"
 #include "core/hle/service/cmif_serialization.h"
 
 namespace Service::News {
@@ -95,8 +97,15 @@ Result INewsService::DecodeArchiveFile(InBuffer<BufferAttr_HipcPointer> archive_
     R_SUCCEED();
 }
 
-Result INewsService::Unknown30500() {
-    LOG_WARNING(Service_BCAT, "(STUBBED) called");
+Result INewsService::Unknown30500(OutInterface<IDownloadContext> out_context,
+                                 InBuffer<BufferAttr_HipcPointer> filter,
+                                 InCopyHandle<Kernel::KAutoObject> transfer_handle,
+                                 u64 transfer_size) {
+    // Firmware's INewsService returns an IDownloadContext domain object.
+    // Returning success without it makes the client use an invalid object id.
+    LOG_INFO(Service_BCAT, "Create download context: filter_bytes={} transfer_size={} handle={}",
+             filter.size(), transfer_size, transfer_handle.Get() != nullptr);
+    *out_context = std::make_shared<IDownloadContext>(system);
     R_SUCCEED();
 }
 

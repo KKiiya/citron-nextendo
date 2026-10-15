@@ -10,7 +10,13 @@ namespace Core {
 class System;
 }
 
+namespace Kernel {
+class KAutoObject;
+}
+
 namespace Service::News {
+
+class IDownloadContext;
 
 class INewsService final : public ServiceFramework<INewsService> {
 public:
@@ -33,7 +39,9 @@ private:
     Result Unknown30210();
     Result RequestImmediateReception();
     Result DecodeArchiveFile(InBuffer<BufferAttr_HipcPointer> archive_data, OutBuffer<BufferAttr_HipcMapAlias> out_decoded_data);
-    Result Unknown30500();
+    Result Unknown30500(OutInterface<IDownloadContext> out_context,
+                        InBuffer<BufferAttr_HipcPointer> filter,
+                        InCopyHandle<Kernel::KAutoObject> transfer_handle, u64 transfer_size);
     Result Unknown30900();
     Result Unknown30901();
     Result Unknown30902();
