@@ -24,6 +24,9 @@ Do not treat this branch as approval to merge or deploy.
 The branch deliberately preserves the tested historical base. `main` has newer
 rendering/network changes; reconcile those changes and rebuild before merging.
 The beta's existing build evidence is not validation of a rebase onto main.
+A merge preview against `82af7ba5e` reports conflicts in `main.cpp`, ACC, SSL,
+`network_interface.cpp` and `nso.cpp`; this draft intentionally exposes the
+tested beta for review before that reconciliation.
 
 ## Suggested review order
 
