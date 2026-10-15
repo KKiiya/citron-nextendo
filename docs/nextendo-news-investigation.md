@@ -63,3 +63,21 @@ No such acceptance result is claimed by this investigation.
 - https://switchbrew.org/wiki/BCAT_Content_Container
 - https://github.com/kinnay/NintendoClients/wiki/BCAT-Servers
 - Prelude-Nextendo source/nextendo_news.c and source/nextendo_apply.c
+
+## Follow-up: official Ryujinx-Nextendo v1.9.3 reference located
+
+The owner's supplied Nextendo-1.9.3 ZIP matches the official release hash.
+The corresponding public source now provides a concrete implementation in
+src/Ryujinx.HLE/HOS/Services/News/NextendoNews.cs and INewsDatabaseService.cs.
+It documents topic reception, decryption, MessagePack ingestion and native queries.
+The earlier lack of a reference implementation is therefore resolved.
+
+That implementation obtains its news-specific runtime parameters from
+nextendo_news_key.json in the program or application-data directory. The supplied
+ZIP does not contain that file as a separate entry. No private data directory,
+passphrase or key material was inspected. The runtime parameter delivery contract
+still needs maintainer confirmation before porting reception. Do not add guessed
+parameters or extract unrelated keys from a user's configuration.
+
+Reference:
+https://github.com/NextendoNetwork/Ryujinx-Nextendo/blob/v1.9.3/src/Ryujinx.HLE/HOS/Services/News/NextendoNews.cs

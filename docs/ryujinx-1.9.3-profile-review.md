@@ -40,7 +40,10 @@ A companion patch is included at docs/patches/ryujinx-1.9.3-home-presence.patch.
 It preserves HOME's actual ID and online status, with an explicit Ryujinx display
 label in the existing opaque presence field, which older servers already relay.
 Other system programs retain their prior behavior. The patch is prepared for
-review, not applied to a running Ryujinx, compiled or submitted upstream.
+review, not applied to a running Ryujinx or submitted as a Ryujinx PR. Its actual
+DoPublish method was compiled with controlled boundaries: HOME, ordinary game
+and other system-program cases passed with a fake HTTP transport. A full
+Ryujinx runtime has not been built or tested with the patch.
 
 ## Citron corrections
 
@@ -69,3 +72,21 @@ Full runtime compilation and native acceptance are tracked separately.
 - https://github.com/NextendoNetwork/Ryujinx-Nextendo/blob/v1.9.3/src/Ryujinx.HLE/HOS/NextendoFriendPage.cs
 - https://github.com/NextendoNetwork/Ryujinx-Nextendo/blob/v1.9.3/src/Ryujinx.HLE/HOS/NextendoFriendProfile.cs
 - https://github.com/NextendoNetwork/Ryujinx-Nextendo/blob/v1.9.3/src/Ryujinx.Common/Configuration/NextendoFriends.cs
+
+## beta54.3.6 runtime evidence
+
+Runtime revision: fdac8f79392686961769e426e5168baaf50b8591.
+The full Windows build and runtime deployment passed. Original developer source
+and executable were restored; the stable executable hash remains unchanged.
+The clean runtime contains no personal data, launcher scripts or Markdown files.
+
+Executable SHA-256: 597fd1e31be7a2c61e05e07de0fb2348ff3e6c854e9e01ccc7a9e5263916e128.
+ZIP SHA-256: 88d101284e3c2d76c62ad230fd81d39502c2b5b8f1de43a9971e3118a332d6ed.
+
+Linux normal and ASan/UBSan checks passed:
+https://github.com/NextendoNetwork/citron-nextendo/actions/runs/38775171095
+Signed catalog checks passed:
+https://github.com/NextendoNetwork/citron-nextendo/actions/runs/38775171099
+
+Native visual acceptance of the new fallback remains pending. No existing app
+instance was closed or replaced for this review. Banner rendering remains pending.
