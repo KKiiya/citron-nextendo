@@ -17,6 +17,9 @@ class KAutoObject;
 namespace Service::News {
 
 class IDownloadContext;
+class INewlyArrivedEventHolder;
+class INewsDataService;
+class INewsDatabaseService;
 
 class INewsService final : public ServiceFramework<INewsService> {
 public:
@@ -42,9 +45,9 @@ private:
     Result Unknown30500(OutInterface<IDownloadContext> out_context,
                         InBuffer<BufferAttr_HipcPointer> filter,
                         InCopyHandle<Kernel::KAutoObject> transfer_handle, u64 transfer_size);
-    Result Unknown30900();
-    Result Unknown30901();
-    Result Unknown30902();
+    Result Unknown30900(OutInterface<INewlyArrivedEventHolder> out_interface);
+    Result Unknown30901(OutInterface<INewsDataService> out_interface);
+    Result Unknown30902(OutInterface<INewsDatabaseService> out_interface);
     Result SetSubscriptionStatus(InBuffer<BufferAttr_HipcPointer> subscription_data);
     Result ClearStorage();
     Result ClearSubscriptionStatusAll();
