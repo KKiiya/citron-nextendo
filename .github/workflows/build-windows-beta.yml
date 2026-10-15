@@ -89,6 +89,7 @@ jobs:
         shell: "msys2 {0}"
         env:
           MSYSTEM: CLANG64
+          CITRON_NEXTENDO_DESKTOP_CLIENT_ID: ${{ inputs.public_desktop_client_id }}
         run: |
           export CITRON_BUILD_TYPE=Development
           export PYTHON_EXECUTABLE="$(cygpath -u '${{ steps.python.outputs.python-path }}')"
@@ -96,13 +97,11 @@ jobs:
 
       - name: Package beta using shared Roaming data
         shell: pwsh
-        env:
-          DESKTOP_CLIENT_ID: ${{ inputs.public_desktop_client_id }}
         run: |
-          python tools/package-beta-windows.py --runtime build/clang-cl/use --output beta-dist --version "review-${{ steps.version.outputs.VERSION }}" --public-client-id "$env:DESKTOP_CLIENT_ID"
+          python tools/package-beta-windows.py --runtime build/clang-cl/use --output beta-dist --version "review-${{ steps.version.outputs.VERSION }}"
       - name: Upload beta for testers
         uses: actions/upload-artifact@v4
         with:
           name: Citron-Windows-Beta-${{ steps.version.outputs.VERSION }}
-          path: beta-dist/*.zip
+          path: beta-dist/*.*
           retention-days: 14

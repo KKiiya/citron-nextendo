@@ -48,7 +48,7 @@ constexpr const char* CanonicalUrl = "https://nextendo.network";
 constexpr const char* ClientId = AppClientId;
 constexpr int TimeoutSeconds = 15;
 
-// This file contains a public desktop OAuth client ID, never an account token or secret.
+// Desktop client identifiers are public application metadata, never account credentials.
 std::string PublicDesktopClientId() {
     if (const char* configured = std::getenv("CITRON_NEXTENDO_CLIENT_ID"); configured && *configured) {
         return configured;
@@ -62,6 +62,9 @@ std::string PublicDesktopClientId() {
         if (id.size() > 128 || !std::all_of(id.begin(), id.end(), [](unsigned char character) {
                 return std::isalnum(character) || character == '-' || character == '_';
             })) id.clear();
+#endif
+#ifdef CITRON_NEXTENDO_DESKTOP_CLIENT_ID
+        if (id.empty()) id = CITRON_NEXTENDO_DESKTOP_CLIENT_ID;
 #endif
         return id;
     }();
@@ -399,7 +402,7 @@ LoginResult SignInWithBrowser(const std::function<void(const std::string&)>& ope
     const bool developer_app = !desktop_id.empty();
     const std::string client_id = developer_app ? desktop_id : ClientId;
     if (client_id.empty()) {
-        out.error = "Nextendo sign-in configuration is missing. Keep nextendo-public-client-id.txt beside citron.exe or use the supplied launcher.";
+        out.error = "Nextendo sign-in configuration is missing. Please contact the distributor of this build.";
         return out;
     }
     const std::string scopes = developer_app ? "identity+friends+presence+game.matchmaking" :
