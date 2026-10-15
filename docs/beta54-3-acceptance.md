@@ -53,3 +53,24 @@ The owner completed three profile/HOME cycles with their physical controller
 and confirmed responsiveness without freezing or closing. Community-tester
 hardware confirmation remains separate. This does not pass photo editing,
 HOME presence icon rendering or the Splatoon 3 suspension scenario.
+
+## Homebrew extraction candidate beta54.3.4
+
+Runtime source `7bcfea089`; executable SHA-256
+`4f92e80d0487074cc45bb6ec97b5c9d6982935ffce7062e081044b3459aa8f68`.
+Windows full build/deployment and **12/12** focused checks passed. The real Qt
+regression reproduces the invalid Windows default directory name derived from
+`citron-neo: The switch fell off`, then validates unique safe directories, writes,
+subdirectories and cleanup. Homebrew and mod extraction use the shared safe template.
+Linux normal and ASan/UBSan passed
+[run 38768319034](https://github.com/NextendoNetwork/citron-nextendo/actions/runs/38768319034);
+catalog/loader/runtime passed
+[run 38768318860](https://github.com/NextendoNetwork/citron-nextendo/actions/runs/38768318860).
+
+The actual GUI preparation completed on the active virtual SD. All six pinned
+hashes match: hbmenu.nro, hbl.nsp, NXThemesInstaller.nro, themezer-nx.nro,
+sphaira.nro and JKSV.nro. Ctrl+H opened native hbmenu, showing JKSV, NXThemes,
+Sphaira and Themezer-NX without another wizard requirement. Ctrl+H then returned
+to HOME, with native UI still rendering at 60 FPS. The profile fix from
+beta54.3.3 remains included; its three controller cycles were owner-confirmed.
+The source ZIP and provenance remain separate from the clean runtime archive.
