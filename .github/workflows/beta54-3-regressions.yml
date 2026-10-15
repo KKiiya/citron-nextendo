@@ -10,15 +10,21 @@ permissions:
   contents: read
 jobs:
   focused-regressions:
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizers: [OFF, ON]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Install JSON headers
-        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
+        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev libfmt-dev
       - name: Configure
-        run: cmake -S tests/beta54_3 -B build/beta54_3-tests -DCMAKE_BUILD_TYPE=Debug
+        run: cmake -S tests/beta54_3 -B build/beta54_3-tests -DCMAKE_BUILD_TYPE=Debug -DBETA54_3_SANITIZERS=${{ matrix.sanitizers }}
       - name: Build
         run: cmake --build build/beta54_3-tests --parallel 2
       - name: Test
         run: ctest --test-dir build/beta54_3-tests --output-on-failure
+      - name: Repeat concurrent lifecycle checks
+        run: ctest --test-dir build/beta54_3-tests -R domain-object-table --repeat until-fail:20 --output-on-failure

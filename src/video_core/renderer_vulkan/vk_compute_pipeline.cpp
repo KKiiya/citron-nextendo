@@ -49,6 +49,10 @@ ComputePipeline::ComputePipeline(const Device& device_, vk::PipelineCache& pipel
         builder.Add(info, VK_SHADER_STAGE_COMPUTE_BIT);
 
         split_descriptor_sets = builder.IsSplit();
+        for (size_t set = 0; set < descriptor_cache_entries.size(); ++set) {
+            const auto entries = builder.UpdateEntries(set);
+            descriptor_cache_entries[set].assign(entries.begin(), entries.end());
+        }
         uses_push_descriptor = split_descriptor_sets;
         descriptor_set_layout = builder.CreateDescriptorSetLayout(uses_push_descriptor);
         if (split_descriptor_sets) {
@@ -150,6 +154,12 @@ void ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
         const u32 index_offset{index << desc.size_shift};
         const u32 offset{desc.cbuf_offset + index_offset};
         const GPUVAddr addr{cbufs[desc.cbuf_index].Address() + offset};
+        u32 constant_bits{};
+        u32 mask{~0U};
+        if constexpr (std::is_same_v<decltype(desc), const Shader::TextureDescriptor&>) {
+            constant_bits = desc.handle_constant;
+            mask = desc.handle_mask;
+        }
         if constexpr (std::is_same_v<decltype(desc), const Shader::TextureDescriptor&> ||
                       std::is_same_v<decltype(desc), const Shader::TextureBufferDescriptor&>) {
             if (desc.has_secondary) {
@@ -159,10 +169,10 @@ void ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
                                              secondary_offset};
                 const u32 lhs_raw{gpu_memory.Read<u32>(addr) << desc.shift_left};
                 const u32 rhs_raw{gpu_memory.Read<u32>(separate_addr) << desc.secondary_shift_left};
-                return TexturePair(lhs_raw | rhs_raw, via_header_index);
+                return TexturePair(lhs_raw | rhs_raw | constant_bits, via_header_index);
             }
         }
-        return TexturePair(gpu_memory.Read<u32>(addr), via_header_index);
+        return TexturePair((gpu_memory.Read<u32>(addr) & mask) | constant_bits, via_header_index);
     }};
     const auto add_image{[&](const auto& desc, bool blacklist) {
         for (u32 index = 0; index < desc.count; ++index) {
@@ -195,7 +205,7 @@ void ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
             // ReadBlockUnsafe is needed.
             BindlessCacheEntry& entry = FindOrAcquireBindlessEntry(
                 bindless_cache, bindless_cache_rr, cbuf_addr, desc.count,
-                image_table_generation);
+                desc.handle_constant, desc.handle_mask, image_table_generation);
             if (entry.valid) {
                 views.insert(views.end(), entry.cached_views.begin(), entry.cached_views.end());
                 samplers.insert(samplers.end(), entry.cached_samplers.begin(),
@@ -214,7 +224,8 @@ void ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
                     static_cast<size_t>(index) << desc.size_shift;
                 u32 raw;
                 std::memcpy(&raw, bindless_scratch.data() + slot_offset, sizeof(u32));
-                const auto handle = TexturePair(raw, via_header_index);
+                const auto handle = TexturePair((raw & desc.handle_mask) | desc.handle_constant,
+                                                via_header_index);
                 views.push_back({handle.first});
                 samplers.push_back(handle.first == 0
                                        ? VideoCommon::NULL_SAMPLER_ID
@@ -272,7 +283,7 @@ void ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     const VideoCommon::SamplerId* samplers_it{samplers.data()};
     const VideoCommon::ImageViewInOut* views_it{views.data()};
     PushImageDescriptors(texture_cache, guest_descriptor_queue, info, rescaling, samplers_it,
-                         views_it);
+                         views_it, &texture_array_memos, texture_cache.ComputeImageTableGeneration());
 
     if (!is_built.load(std::memory_order::relaxed)) {
         // Wait for the pipeline to be built
@@ -282,9 +293,8 @@ void ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
         });
     }
     const auto* const descriptor_data{guest_descriptor_queue.UpdateData()};
-    const size_t upload_entries{guest_descriptor_queue.GetUploadSize()};
     const bool is_rescaling = !info.texture_descriptors.empty() || !info.image_descriptors.empty();
-    scheduler.Record([this, &scheduler, descriptor_data, upload_entries, is_rescaling,
+    scheduler.Record([this, &scheduler, descriptor_data, is_rescaling,
                       rescaling_data = rescaling.Data()](vk::CommandBuffer cmdbuf) {
         cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline);
         if (!descriptor_set_layout && !resource_set_layout) {
@@ -296,15 +306,17 @@ void ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
                                  rescaling_data.data());
         }
         const vk::Device& dev{device.GetLogical()};
-        const u64 data_hash = HashDescriptorBlock(descriptor_data, upload_entries);
         auto& semaphore = scheduler.GetMasterSemaphore();
         // Strict per-CB cache - see GraphicsPipeline::ConfigureDraw.
         const u64 current_tick = semaphore.CurrentTick();
         const auto get_or_alloc = [&](DescriptorAllocator& alloc,
-                                      const vk::DescriptorUpdateTemplate& tpl) -> VkDescriptorSet {
+                                      const vk::DescriptorUpdateTemplate& tpl,
+                                      size_t set_index) -> VkDescriptorSet {
+            const u64 data_hash = HashDescriptorSet(descriptor_data,
+                                                    descriptor_cache_entries[set_index]);
             for (auto& e : descriptor_set_cache) {
                 if (e.set != VK_NULL_HANDLE && e.hash == data_hash &&
-                    e.cb_tick == current_tick) {
+                    e.cb_tick == current_tick && e.set_index == set_index) {
                     return e.set;
                 }
             }
@@ -315,7 +327,7 @@ void ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
                     e.set = VK_NULL_HANDLE;
                 }
             }
-            descriptor_set_cache[descriptor_set_cache_rr] = {data_hash, current_tick, fresh};
+            descriptor_set_cache[descriptor_set_cache_rr] = {data_hash, current_tick, fresh, set_index};
             descriptor_set_cache_rr =
                 (descriptor_set_cache_rr + 1) % DESC_SET_CACHE_SIZE;
             return fresh;
@@ -326,14 +338,14 @@ void ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
                                                         *pipeline_layout, 0, descriptor_data);
             } else {
                 const VkDescriptorSet ds = get_or_alloc(descriptor_allocator,
-                                                        descriptor_update_template);
+                                                        descriptor_update_template, 0);
                 cmdbuf.BindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline_layout, 0,
                                           ds, nullptr);
             }
         }
         if (resource_set_layout) {
             const VkDescriptorSet rs = get_or_alloc(resource_descriptor_allocator,
-                                                    resource_update_template);
+                                                    resource_update_template, 1);
             cmdbuf.BindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline_layout, 1,
                                       rs, nullptr);
         }

@@ -3,17 +3,21 @@
 
 #pragma once
 
+#include <vector>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
+#include <span>
 #include <type_traits>
 
 #include "common/thread_worker.h"
 #include "shader_recompiler/shader_info.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/renderer_vulkan/fixed_pipeline_state.h"
+#include "video_core/renderer_vulkan/pipeline_helper.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
@@ -107,6 +111,12 @@ public:
         return build_failed.load(std::memory_order::acquire);
     }
 
+    /// Vertex shader stores the rasterizer performs, see Shader::PointerStoreDescriptor
+    [[nodiscard]] std::span<const Shader::PointerStoreDescriptor> VertexPointerStores()
+        const noexcept {
+        return stage_infos[0].pointer_store_descriptors;
+    }
+
     template <typename Spec>
     static auto MakeConfigureSpecFunc() {
         return [](GraphicsPipeline* pl, bool is_indexed) { pl->ConfigureImpl<Spec>(is_indexed); };
@@ -146,6 +156,7 @@ private:
     std::array<vk::ShaderModule, NUM_STAGES> spv_modules;
 
     std::array<Shader::Info, NUM_STAGES> stage_infos;
+    std::array<std::vector<TextureArrayMemo>, NUM_STAGES> texture_array_memos;
     std::array<u32, 5> enabled_uniform_buffer_masks{};
     VideoCommon::UniformBufferSizes uniform_buffer_sizes{};
     u32 num_textures{};
@@ -170,10 +181,12 @@ private:
         u64 hash{0};
         u64 cb_tick{0};
         VkDescriptorSet set{VK_NULL_HANDLE};
+        size_t set_index{};
     };
     static constexpr size_t DESC_SET_CACHE_SIZE = 16;
     std::array<CachedDescSet, DESC_SET_CACHE_SIZE> descriptor_set_cache{};
     size_t descriptor_set_cache_rr{0};
+    std::array<std::vector<VkDescriptorUpdateTemplateEntry>, 2> descriptor_cache_entries;
 
     std::condition_variable build_condvar;
     std::mutex build_mutex;

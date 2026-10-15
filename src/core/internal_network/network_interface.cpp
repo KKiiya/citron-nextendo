@@ -329,17 +329,20 @@ std::optional<NetworkInterface> GetSelectedNetworkInterface() {
         });
 
     if (res == network_interfaces.end()) {
+        // Prefer an adapter with a gateway; a VPN tunnel often sorts first but peers can't reach it.
+        const auto with_gateway = std::ranges::find_if(network_interfaces, [](const auto& iface) {
+            return iface.gateway.s_addr != 0;
+        });
+        const auto& chosen =
+            with_gateway != network_interfaces.end() ? *with_gateway : network_interfaces.front();
         static bool print_error = true;
         if (print_error) {
             LOG_INFO(Network, "Selected interface \"{}\" not explicitly set or found; using primary interface \"{}\"",
-                      selected_network_interface, network_interfaces.front().name);
+                      selected_network_interface, chosen.name);
             print_error = false;
         }
 
-        const auto routed = std::ranges::find_if(network_interfaces, [](const auto& iface) {
-            return iface.gateway.s_addr != 0;
-        });
-        return routed != network_interfaces.end() ? *routed : network_interfaces.front();
+        return chosen;
     }
 
     return *res;

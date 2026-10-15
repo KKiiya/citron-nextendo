@@ -21,12 +21,18 @@ Do not treat this branch as approval to merge or deploy.
   the snapshot import. It excludes the later, unvalidated build55 lifetime,
   profile-photo and HOME presence-icon experiments.
 
-The branch deliberately preserves the tested historical base. `main` has newer
-rendering/network changes; reconcile those changes and rebuild before merging.
-The beta's existing build evidence is not validation of a rebase onto main.
-A merge preview against `82af7ba5e` reports conflicts in `main.cpp`, ACC, SSL,
-`network_interface.cpp` and `nso.cpp`; this draft intentionally exposes the
-tested beta for review before that reconciliation.
+## Main reconciliation — October 15, 2026
+
+The initial review preserved the historical beta exactly. The branch now merges
+`82af7ba5e71dd23cc4b2ad491695bf2b55ffb296` from main. All five conflicts were
+resolved explicitly: preserve main's Splatoon 3 package validation and preboot
+refresh; keep account-cache C/B buffer placement with the beta caller identity;
+use main's routed adapter choice; retain both NSO patch includes; keep TLS
+certificate size queries safe without an unconditional duplicate write.
+
+The original beta54.3 artifact hashes above describe the original distributed
+beta, not this newly combined candidate. Full candidate build and Linux sanitizer
+CI results are tracked below and in the PR. No merge approval is implied.
 
 ## Suggested review order
 
@@ -88,7 +94,7 @@ tested beta for review before that reconciliation.
 
 ## Reproduce the standalone checks
 
-Install a C++20 compiler, CMake, Threads and nlohmann-json headers. These tests do
+Install a C++20 compiler, CMake, Threads, fmt and nlohmann-json headers. These tests do
 not require console firmware or account data, and are independent of the full
 emulator build:
 
@@ -115,3 +121,15 @@ Preserve the existing portable `user` directory when upgrading a tester.
 AI assistance: OpenAI Codex helped implement, investigate, organize and validate
 these changes. Manual gameplay/UI results above are explicitly owner-reported
 where applicable. Existing upstream work and license notices are retained.
+
+## Expanded checks after maintainer feedback
+
+- Windows Clang 22.1.8: **9/9 passed** after the main reconciliation. The added
+  cases exercise actual per-applet touch focus/bounds, GPU device address page
+  tables beyond the former 16 GiB limit and viewer presence storage bounds.
+- The concurrent domain-object lifecycle test also passed **20 consecutive
+  runs** (327,680 append/get/close iterations across eight workers per run).
+- The Linux workflow now runs both ordinary and ASan/UBSan configurations and
+  repeats the concurrency check in both. Results are pending until CI completes.
+- Existing manual evidence applies to the original beta; new full-emulator
+  gameplay and firmware acceptance for the reconciled candidate is pending.

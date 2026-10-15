@@ -34,16 +34,25 @@ inline const std::unordered_map<u64, std::string>& Table() {
         {0x0100277011f1a000, "1.0.2"},  // Super Mario Bros. 35
         {0x0100770008dd8000, "1.4.0"},  // Monster Hunter Generations Ultimate
         {0x010047700d540000, "2.0.1"},  // Clubhouse Games: 51 Worldwide Classics
-        {0x0100c6f01c4f8000, "1.3.0"}, // METAL GEAR SOLID: Peace Walker - Master Collection Version
+        {0x0100c6f01c4f8000, "1.3.0"}, // METAL GEAR SOLID: Peace Walker - Master Collection Version (JP)
+        {0x010099801c4fa000, "1.3.0"}, // METAL GEAR SOLID: Peace Walker - Master Collection Version (US)
         {0x01006fd0080b2000, "1.0.19"}, // Overcooked! 2
         {0x01006fe013472000, "1.1.1"}, // Mario Party Superstars
+        {0x0100965017338000, "2.3.0"}, // Super Mario Party Jamboree
         {0x0100000000010000, "1.4.1"}, // Super Mario Odyssey
         {0x01008f6008c5e000, "4.0.0"}, // Pokémon Violet
         {0x0100a3d008c5c000, "4.0.0"}, // Pokémon Scarlet
         {0x0100f43008c44000, "2.0.2"}, // Pokémon Legends: Z-A
         {0x0100c9a00ece6000, "4.2.0"}, // Nintendo 64 - Nintendo Classics
+        {0x010019401051c000, "1.3.2"}, // Mario Strikers: Battle League
         {0x0100f9f00c696000, "1.0.15"},      // Crash Team Racing Nitro-Fueled
         {0x01001b300b9be000, "2.7.7.92380"}, // Diablo III: Eternal Collection
+        {0x0100a7c01b792000, "1.1.1.0"},     // Minecraft Dungeons II
+        {0x0100b3f000be2000, "1.3.3"},       // Pokken Tournament DX
+        {0x0100de600beee000, "1.6.1"},       // Saints Row: The Third - The Full Package
+        {0x0100d2f00d5c0000, "1.5.0"},       // Nintendo Switch Sports
+        {0x0100a250097f0000, "01.50"},       // DRAGON BALL FighterZ
+        {0x0100b04011742000, "16.0.2"},      // MONSTER HUNTER RISE
     };
     return table;
 }

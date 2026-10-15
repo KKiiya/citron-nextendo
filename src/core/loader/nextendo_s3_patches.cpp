@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 citron Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <span>
 #include <string_view>
 
@@ -35,6 +36,16 @@ constexpr std::array<u8, 29> kPeerHostnameFix{{
     0x00, 0x14, 0xDD, 0x80, 0x00, 0x04, // offset 0x0014DD80, 4 bytes
     0xF4, 0x03, 0x1F, 0x2A,
     0x45, 0x45, 0x4F, 0x46, // "EEOF"
+}};
+
+// Super Mario Party Jamboree 2.3.0, build D70CE1726C979E45ED4200E9C2B23B2A258FDC18.
+// Selects the gRPC certificate verification callback used by the tested client.
+// Flat 0xAD38BC: LDRB W10,[X21,#0x38] -> MOV W10,#1; IPS includes the NSO header.
+constexpr std::array<u8, 19> kMpjCertificate230{{
+    0x49, 0x50, 0x53, 0x33, 0x32,
+    0x00, 0xAD, 0x39, 0xBC, 0x00, 0x04,
+    0x2A, 0x00, 0x80, 0x52,
+    0x45, 0x45, 0x4F, 0x46,
 }};
 
 // Super Mario Bros. Wonder v1.2.1, build FF773E90972D544EB79406EAA65396D53C43EFB9.
@@ -177,7 +188,29 @@ constexpr std::array<u8, 39> kPokemonZaPatchesData{{
 }};
 constexpr std::array<std::span<const u8>, 1> kPokemonZaPatches{{kPokemonZaPatchesData}};
 
-constexpr std::array<KnownBuild, 11> kKnownBuilds{{
+// Xenoblade Chronicles X: Definitive Edition 2.0.0: Z-A's three checks, same instructions.
+constexpr std::array<u8, 39> kXenobladeXPatchesData{{
+    0x49, 0x50, 0x53, 0x33, 0x32,
+    0x00, 0xD5, 0x7B, 0x80, 0x00, 0x04, 0x2A, 0x00, 0x80, 0x52,
+    0x00, 0xD5, 0x71, 0x78, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
+    0x00, 0xD5, 0x72, 0x7C, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
+    0x45, 0x45, 0x4F, 0x46,
+}};
+constexpr std::array<std::span<const u8>, 1> kXenobladeXPatches{{kXenobladeXPatchesData}};
+
+constexpr std::array<std::span<const u8>, 1> kMpj230Patches{{kMpjCertificate230}};
+
+// Monster Hunter Rise 16.0.2: Z-A's three checks in its older NPLN SDK, same instructions.
+constexpr std::array<u8, 39> kMonsterHunterRisePatchesData{{
+    0x49, 0x50, 0x53, 0x33, 0x32,
+    0x02, 0x03, 0x3C, 0x04, 0x00, 0x04, 0x2A, 0x00, 0x80, 0x52,
+    0x02, 0x03, 0x2F, 0x28, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
+    0x02, 0x03, 0x2F, 0xE8, 0x00, 0x04, 0x1F, 0x20, 0x03, 0xD5,
+    0x45, 0x45, 0x4F, 0x46,
+}};
+constexpr std::array<std::span<const u8>, 1> kMonsterHunterRisePatches{{kMonsterHunterRisePatchesData}};
+
+constexpr std::array<KnownBuild, 14> kKnownBuilds{{
     {"6830B3A12406CB4716FEC5ADDC35D3E2DC92D212", kSplatoon3PeerPatches},
     {"726D2B882DD9EF10F4A9D73EED088740630FB6C8", kSplatoon3CertOnlyPatches},
     {"28C4287AEE36F7499DA60F3E68B54C70DA382D75", kSplatoon3PeerPatches},
@@ -189,6 +222,9 @@ constexpr std::array<KnownBuild, 11> kKnownBuilds{{
     {"709BFD66115298640155FCC4979DBA151C7CC79A", kPokemonSvPatches}, // Violet 3.0.1 / 4.0.0
     {"421C5411B487EB4D049DD065FEC9547773E8E598", kPokemonSvPatches}, // Scarlet 4.0.0
     {"B1F12FD919EAE86AB8A978317677E64BCE443D1F", kPokemonZaPatches}, // Legends: Z-A 2.0.2
+    {"EC4ED46BBC4A9EBBE7CE0AF7A4A8EBBC09E5724A", kXenobladeXPatches}, // Xenoblade X 2.0.0
+    {"D70CE1726C979E45ED4200E9C2B23B2A258FDC18", kMpj230Patches}, // Jamboree 2.3.0
+    {"C9A3DD7702075ECD90101F45553895822804D38F", kMonsterHunterRisePatches}, // MH Rise 16.0.2
 }};
 
 FileSys::VirtualFile MakeIpsFile(std::span<const u8> bytes) {
@@ -212,9 +248,26 @@ std::vector<u8> ApplyOne(std::vector<u8> nso, std::span<const u8> ips_bytes, siz
 } // namespace
 
 std::vector<u8> ApplyIfMatch(const std::array<u8, 0x20>& build_id, std::vector<u8> nso,
-                             std::string_view module_name) {
+                             std::string_view module_name, u64 title_id) {
     const auto build_id_raw = Common::HexToString(build_id);
     const auto build_id_hex = build_id_raw.substr(0, build_id_raw.find_last_not_of('0') + 1);
+
+    // US direct launches lack the collection launcher's -lan argument. The game's
+    // fallback is Japanese (6), but US RomFS only contains the MLG sound bank.
+    // Default to English (0) only for this verified US build; explicit languages
+    // still follow the existing parser. Offsets include the 0x100-byte NSO header.
+    if (title_id == 0x010099801C4FA000ULL && module_name == "main" &&
+        build_id_hex == "BCA1A793E41A4836EF3C03286B18E816EEC62338") {
+        constexpr size_t offset = 0x5F998;
+        constexpr std::array<u8, 4> expected{0xD4, 0x00, 0x80, 0x52};
+        if (nso.size() >= offset + expected.size() &&
+            std::equal(expected.begin(), expected.end(), nso.begin() + offset)) {
+            nso[offset] = 0x14; // mov w20, #6 -> mov w20, #0
+            LOG_INFO(Loader, "[Nextendo] Peace Walker US: direct-launch language fallback applied");
+        } else {
+            LOG_ERROR(Loader, "[Nextendo] Peace Walker US: unexpected startup instruction; patch skipped");
+        }
+    }
 
     for (const auto& known : kKnownBuilds) {
         if (build_id_hex != known.build_id_hex) {

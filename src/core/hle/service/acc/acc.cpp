@@ -35,6 +35,7 @@
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_thread.h"
 #include "core/hle/service/acc/acc.h"
+#include "core/hle/service/acc/nextendo_cached_account_info.h"
 #include "core/hle/service/acc/acc_aa.h"
 #include "core/hle/service/acc/acc_e.h"
 #include "core/hle/service/acc/acc_e_u1.h"
@@ -1257,17 +1258,24 @@ private:
     }
 
     void GetNintendoAccountUserResourceCacheForApplication(HLERequestContext& ctx) {
-        u64 account_id = GetEffectivePid(GetCallerProgramId(ctx));
-        LOG_DEBUG(Service_ACC, "[Nextendo] GetNintendoAccountUserResourceCacheForApplication called");
-
-        std::vector<u8> nas_user_base_for_application(0x68, 0);
-        std::memcpy(nas_user_base_for_application.data(), &account_id, sizeof(account_id));
-        ctx.WriteBuffer(nas_user_base_for_application, 0);
-
-        if (ctx.CanWriteBuffer(1)) {
-            std::vector<u8> unknown_out_buffer(ctx.GetWriteBufferSize(1), 0);
-            ctx.WriteBuffer(unknown_out_buffer, 1);
+        const u64 account_id = GetEffectivePid(GetCallerProgramId(ctx));
+        // NasUserBase is the fixed output pointer (C), not the B resource buffer.
+        // SDK GetBirthday reads a NUL-terminated date from offset zero.
+        if (ctx.BufferDescriptorC().empty() ||
+            ctx.BufferDescriptorC()[0].Size() < NextendoCachedAccountInfo.size()) {
+            LOG_ERROR(Service_ACC, "[Nextendo account cache] Missing/short user-base buffer");
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultInvalidArrayLength);
+            return;
         }
+        ctx.WriteBufferC(NextendoCachedAccountInfo.data(), NextendoCachedAccountInfo.size(), 0);
+
+        if (!ctx.BufferDescriptorB().empty()) {
+            std::vector<u8> resource(ctx.BufferDescriptorB()[0].Size(), 0);
+            ctx.WriteBufferB(resource.data(), resource.size(), 0);
+        }
+        LOG_INFO(Service_ACC,
+                 "[Nextendo account cache] Returned 0x68-byte user base; shared birthday=2000-01-01.");
 
         IPC::ResponseBuilder rb{ctx, 4};
         rb.Push(ResultSuccess);

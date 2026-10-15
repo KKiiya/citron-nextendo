@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <memory>
@@ -89,6 +90,11 @@ public:
         }
     }
 
+    void AddEntries(std::span<const DescriptorUpdateEntry> entries) {
+        EnsureCapacity(entries.size());
+        payload_cursor = std::copy(entries.begin(), entries.end(), payload_cursor);
+    }
+
     void AddBuffers(std::span<const VkBuffer> buffers, VkDeviceSize offset, VkDeviceSize size) {
         const size_t count = buffers.size();
         EnsureCapacity(count);
@@ -128,12 +134,14 @@ protected:
     static constexpr size_t PAYLOAD_SIZE = FRAME_PAYLOAD_SIZE * FRAMES_IN_FLIGHT;
 
     void EnsureCapacity(size_t required_entries);
-    void HandleOverflow();
+    void HandleOverflow(bool keep_current_upload);
+    void AdvanceFrame();
 
     const Device& device;
     Scheduler& scheduler;
 
     size_t frame_index{0};
+    std::array<u64, FRAMES_IN_FLIGHT> frame_ticks{}; // tick of the last commands that read each slice
     DescriptorUpdateEntry* payload_cursor = nullptr;
     DescriptorUpdateEntry* payload_start = nullptr;
     const DescriptorUpdateEntry* upload_start = nullptr;

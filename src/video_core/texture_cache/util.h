@@ -25,6 +25,7 @@ struct OverlapResult {
     GPUVAddr gpu_addr;
     VAddr cpu_addr;
     SubresourceExtent resources;
+    u32 depth = 0; ///< Level 0 depth a 3D union needs, 0 when unchanged.
 };
 
 [[nodiscard]] u32 CalculateGuestSizeInBytes(const ImageInfo& info) noexcept;

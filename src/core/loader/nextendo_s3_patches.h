@@ -39,6 +39,6 @@ namespace Loader::NextendoS3Patches {
 // semaines d'enquete ont cherche la cause dans gRPC-core et dans l'ordonnanceur du noyau. Une seule
 // ligne d'avertissement ici aurait suffi a l'eviter.
 std::vector<u8> ApplyIfMatch(const std::array<u8, 0x20>& build_id, std::vector<u8> nso,
-                             std::string_view module_name);
+                             std::string_view module_name, u64 title_id);
 
 } // namespace Loader::NextendoS3Patches

@@ -468,22 +468,21 @@ private:
             res = backend->GetServerCerts(&certs);
             if (res == ResultSuccess) {
                 const std::vector<u8> certs_buf = SerializeServerCerts(certs);
+                // Preserve main's size-query contract for every caller. The beta's
+                // UNO diagnostics must not add an unconditional second write.
+                const size_t capacity = ctx.CanWriteBuffer() ? ctx.GetWriteBufferSize() : 0;
+                if (capacity >= certs_buf.size() && ctx.CanWriteBuffer()) {
+                    ctx.WriteBuffer(certs_buf);
+                }
                 out.certs_count = static_cast<u32>(certs.size());
                 out.certs_size = static_cast<u32>(certs_buf.size());
                 const char* uno_probe = std::getenv("NEXTENDO_UNO_PROBE");
                 const bool uno_diagnostic = uno_probe && std::string_view{uno_probe} == "1" &&
                     system.GetApplicationProcessProgramID() == 0x0100B6E012EBE000ULL;
-                if (uno_diagnostic) {
-                    const size_t capacity = ctx.CanWriteBuffer(0) ? ctx.GetWriteBufferSize(0) : 0;
-                    if (capacity >= certs_buf.size()) {
-                        ctx.WriteBuffer(certs_buf);
-                    } else if (capacity == 0) {
-                        LOG_INFO(Service_SSL, "[UNO diagnostic] Certificate size query; no output write");
-                    } else {
-                        res = ResultInternalError;
-                    }
-                } else {
-                    ctx.WriteBuffer(certs_buf);
+                if (uno_diagnostic && capacity == 0) {
+                    LOG_INFO(Service_SSL, "[UNO diagnostic] Certificate size query; no output write");
+                } else if (uno_diagnostic && capacity < certs_buf.size()) {
+                    res = ResultInternalError;
                 }
             }
         }

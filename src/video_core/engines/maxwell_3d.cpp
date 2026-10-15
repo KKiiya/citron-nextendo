@@ -271,8 +271,11 @@ size_t Maxwell3D::EstimateIndexBufferSize() {
     static constexpr std::array<size_t, 3> max_sizes = {std::numeric_limits<u8>::max(), std::numeric_limits<u16>::max(), std::numeric_limits<u32>::max()};
     const size_t byte_size = regs.index_buffer.FormatSizeInBytes();
     const size_t log2_byte_size = Common::Log2Ceil64(byte_size);
-    const size_t cap{GetMaxCurrentVertices() * 4 * byte_size};
-    const size_t lower_cap = std::min<size_t>(size_t(end_address - start_address), cap);
+    // Without vertex arrays the shader fetches vertices itself, so their size cannot bound the indices.
+    const u32 max_vertices = GetMaxCurrentVertices();
+    const size_t range_size = size_t(end_address - start_address);
+    const size_t cap = max_vertices > 1 ? size_t{max_vertices} * 4 * byte_size : range_size;
+    const size_t lower_cap = std::min<size_t>(range_size, cap);
     return std::min<size_t>(memory_manager.GetMemoryLayoutSize(start_address, byte_size * max_sizes[log2_byte_size]) / byte_size, lower_cap);
 }
 

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include <array>
 #include <atomic>
 #include <condition_variable>
@@ -12,6 +14,7 @@
 #include "common/thread_worker.h"
 #include "shader_recompiler/shader_info.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
+#include "video_core/renderer_vulkan/pipeline_helper.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
@@ -72,10 +75,13 @@ private:
         u64 hash{0};
         u64 cb_tick{0};
         VkDescriptorSet set{VK_NULL_HANDLE};
+        size_t set_index{};
     };
     static constexpr size_t DESC_SET_CACHE_SIZE = 16;
     std::array<CachedDescSet, DESC_SET_CACHE_SIZE> descriptor_set_cache{};
     size_t descriptor_set_cache_rr{0};
+    std::array<std::vector<VkDescriptorUpdateTemplateEntry>, 2> descriptor_cache_entries;
+    std::vector<TextureArrayMemo> texture_array_memos;
 
     std::condition_variable build_condvar;
     std::mutex build_mutex;

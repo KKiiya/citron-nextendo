@@ -27,6 +27,8 @@ struct ConstBufferAddr {
     IR::U32 dynamic_offset;
     u32 count;
     bool has_secondary;
+    u32 handle_constant{}; // sampler bits the shader ORs in as an immediate
+    u32 handle_mask{~0U};  // immediate AND applied to a single-cbuf handle (e.g. 0xfffff)
 };
 
 struct TextureInst {
@@ -219,6 +221,18 @@ std::optional<ConstBufferAddr> TryGetConstBuffer(const IR::Inst* inst, Environme
     default:
         return std::nullopt;
     case IR::Opcode::BitwiseOr32: {
+        // cbuf | immediate sampler bits: otherwise the search falls through to the cbuf and loses the sampler.
+        for (size_t i = 0; i < 2; ++i) {
+            if (!inst->Arg(i).IsImmediate() || inst->Arg(1 - i).IsImmediate() ||
+                (inst->Arg(i).U32() & 0xfffff) != 0) {
+                continue;
+            }
+            std::optional addr{Track(inst->Arg(1 - i), env)};
+            if (addr) {
+                addr->handle_constant |= inst->Arg(i).U32();
+            }
+            return addr;
+        }
         std::optional lhs{Track(inst->Arg(0), env)};
         std::optional rhs{Track(inst->Arg(1), env)};
         if (!lhs || !rhs) {
@@ -282,6 +296,10 @@ std::optional<ConstBufferAddr> TryGetConstBuffer(const IR::Inst* inst, Environme
         std::optional lhs{Track(op1, env)};
         if (lhs) {
             lhs->shift_left = static_cast<u32>(std::countr_zero(op2.U32()));
+            // (cbuf & 0xfffff) | sampler: the cbuf word's upper bits are not part of the handle.
+            if (lhs->shift_left == 0 && !lhs->has_secondary) {
+                lhs->handle_mask &= op2.U32();
+            }
         }
         return lhs;
         break;
@@ -388,7 +406,10 @@ u32 GetTextureHandle(Environment& env, const ConstBufferAddr& cbuf) {
     const u32 lhs_raw{env.ReadCbufValue(cbuf.index, cbuf.offset) << cbuf.shift_left};
     const u32 rhs_raw{env.ReadCbufValue(secondary_index, secondary_offset)
                       << cbuf.secondary_shift_left};
-    return lhs_raw | rhs_raw;
+    if (!cbuf.has_secondary) {
+        return (lhs_raw & cbuf.handle_mask) | cbuf.handle_constant;
+    }
+    return lhs_raw | rhs_raw | cbuf.handle_constant;
 }
 
 TextureType ReadTextureType(Environment& env, const ConstBufferAddr& cbuf) {
@@ -448,6 +469,8 @@ public:
                    desc.secondary_cbuf_index == existing.secondary_cbuf_index &&
                    desc.secondary_cbuf_offset == existing.secondary_cbuf_offset &&
                    desc.secondary_shift_left == existing.secondary_shift_left &&
+                   desc.handle_constant == existing.handle_constant &&
+                   desc.handle_mask == existing.handle_mask &&
                    desc.count == existing.count && desc.size_shift == existing.size_shift;
         })};
         // TODO: Read this from TIC
@@ -688,6 +711,8 @@ void TexturePass(Environment& env, IR::Program& program, const HostTranslateInfo
                     .secondary_shift_left = cbuf.secondary_shift_left,
                     .count = cbuf.count,
                     .size_shift = DESCRIPTOR_SIZE_SHIFT,
+                    .handle_constant = cbuf.handle_constant,
+                    .handle_mask = cbuf.handle_mask,
                 });
             }
             break;

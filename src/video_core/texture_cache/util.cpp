@@ -437,8 +437,13 @@ template <u32 GOB_EXTENT>
     }
     const SubresourceExtent resources = new_info.resources;
     s32 layers = 1;
+    u32 depth = 0;
     if (info.type != ImageType::e3D) {
         layers = std::max(resources.layers, info.resources.layers + base->layer);
+    } else {
+        // A target starting mid-volume needs its own slices in the union, not just the volume's.
+        depth = std::max(info.size.depth,
+                         (static_cast<u32>(base->layer) + new_info.size.depth) << base->level);
     }
     return OverlapResult{
         .gpu_addr = overlap.gpu_addr,
@@ -448,6 +453,7 @@ template <u32 GOB_EXTENT>
                 .levels = std::max(resources.levels + base->level, info.resources.levels),
                 .layers = layers,
             },
+        .depth = depth,
     };
 }
 

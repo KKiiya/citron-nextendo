@@ -253,31 +253,31 @@ void TextureCache<P>::CheckFeedbackLoop(std::span<const ImageViewInOut> views) {
     }
 
     const bool requires_barrier = [&] {
+        // Render target images resolved once per draw instead of once per bound texture.
+        std::array<ImageId, NUM_RT + 1> target_images;
+        size_t num_targets = 0;
+        for (const auto& ct_view_id : render_targets.color_buffer_ids) {
+            if (ct_view_id) {
+                target_images[num_targets++] = slot_image_views[ct_view_id].image_id;
+            }
+        }
+        if (render_targets.depth_buffer_id) {
+            target_images[num_targets++] = slot_image_views[render_targets.depth_buffer_id].image_id;
+        }
+        if (num_targets == 0) {
+            return false;
+        }
         for (const auto& view : views) {
             if (!view.id) {
                 continue;
             }
-            auto& image_view = slot_image_views[view.id];
-
-            // Check color targets
-            for (const auto& ct_view_id : render_targets.color_buffer_ids) {
-                if (ct_view_id) {
-                    auto& ct_view = slot_image_views[ct_view_id];
-                    if (image_view.image_id == ct_view.image_id) {
-                        return true;
-                    }
-                }
-            }
-
-            // Check zeta target
-            if (render_targets.depth_buffer_id) {
-                auto& zt_view = slot_image_views[render_targets.depth_buffer_id];
-                if (image_view.image_id == zt_view.image_id) {
+            const ImageId image_id = slot_image_views[view.id].image_id;
+            for (size_t i = 0; i < num_targets; ++i) {
+                if (image_id == target_images[i]) {
                     return true;
                 }
             }
         }
-
         return false;
     }();
 
@@ -601,7 +601,7 @@ FramebufferId TextureCache<P>::GetFramebufferId(const RenderTargets& key) {
 
 template <class P>
 void TextureCache<P>::WriteMemory(DAddr cpu_addr, size_t size) {
-    // Release the whole write-tracked page; GPU-written images keep exact bounds.
+    // Tracked images outside the written bytes are still notified of their own writes.
     const DAddr page_start = Common::AlignDown(cpu_addr, Core::DEVICE_PAGESIZE);
     const DAddr page_end = Common::AlignUp(cpu_addr + size, Core::DEVICE_PAGESIZE);
     ForEachImageInRegion(page_start, page_end - page_start, [this, cpu_addr, size](ImageId image_id,
@@ -609,7 +609,9 @@ void TextureCache<P>::WriteMemory(DAddr cpu_addr, size_t size) {
         if (True(image.flags & ImageFlagBits::CpuModified)) {
             return;
         }
-        if (True(image.flags & ImageFlagBits::GpuModified) && !image.Overlaps(cpu_addr, size)) {
+        if (!image.Overlaps(cpu_addr, size) &&
+            (True(image.flags & ImageFlagBits::GpuModified) ||
+             True(image.flags & ImageFlagBits::Tracked))) {
             return;
         }
         image.flags |= ImageFlagBits::CpuModified;
@@ -1159,7 +1161,7 @@ void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
 template <class P>
 template <typename StagingBuffer>
 void TextureCache<P>::UploadImageContents(Image& image, StagingBuffer& staging) {
-    const std::span<u8> mapped_span = staging.mapped_span;
+    std::span<u8> mapped_span = staging.mapped_span;
     const GPUVAddr gpu_addr = image.gpu_addr;
 
     if (True(image.flags & ImageFlagBits::AcceleratedUpload)) {
@@ -1173,16 +1175,35 @@ void TextureCache<P>::UploadImageContents(Image& image, StagingBuffer& staging) 
     Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::UnsafeRead> swizzle_data(
         *gpu_memory, gpu_addr, image.guest_size_bytes, &swizzle_data_buffer);
 
+    // Inspect depth data in RAM; the upload heap may be write-combined and slow to read.
+    std::vector<u8> cpu_upload;
+    if constexpr (requires { image.NeedsCpuUploadInspection(); }) {
+        if (image.NeedsCpuUploadInspection()) {
+            cpu_upload.resize(mapped_span.size());
+            mapped_span = cpu_upload;
+        }
+    }
+    const auto upload = [&](const auto& copies) {
+        if constexpr (requires { image.UploadMemory(staging, copies, std::span<const u8>{}); }) {
+            if (!cpu_upload.empty()) {
+                std::memcpy(staging.mapped_span.data(), cpu_upload.data(), cpu_upload.size());
+            }
+            image.UploadMemory(staging, copies, cpu_upload);
+        } else {
+            image.UploadMemory(staging, copies);
+        }
+    };
+
     if (True(image.flags & ImageFlagBits::Converted)) {
         unswizzle_data_buffer.resize_destructive(image.unswizzled_size_bytes);
         auto copies =
             UnswizzleImage(*gpu_memory, gpu_addr, image.info, swizzle_data, unswizzle_data_buffer);
         ConvertImage(unswizzle_data_buffer, image.info, mapped_span, copies);
-        image.UploadMemory(staging, copies);
+        upload(copies);
     } else {
         const auto copies =
             UnswizzleImage(*gpu_memory, gpu_addr, image.info, swizzle_data, mapped_span);
-        image.UploadMemory(staging, copies);
+        upload(copies);
     }
 }
 
@@ -1511,6 +1532,17 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DA
             return;
         }
         join_overlaps_found.insert(overlap_id);
+        if (overlap.info.num_samples != new_info.num_samples && overlap.gpu_addr == gpu_addr &&
+            overlap.guest_size_bytes == size_bytes && overlap.info.type == new_info.type &&
+            overlap.info.resources.levels == 1 && new_info.resources.levels == 1 &&
+            GetFormatType(overlap.info.format) == GetFormatType(new_info.format) &&
+            BytesPerBlock(overlap.info.format) == BytesPerBlock(new_info.format)) {
+            // MSAA and 1x views of the same memory: keep both as aliases instead of re-uploading.
+            join_right_aliased_ids.push_back(overlap_id);
+            overlap.flags |= ImageFlagBits::Alias;
+            join_copies_to_do.emplace_back(JoinCopy{true, overlap_id});
+            return;
+        }
         static constexpr bool strict_size = true;
         const std::optional<OverlapResult> solution = ResolveOverlap(
             new_info, gpu_addr, cpu_addr, overlap, strict_size, broken_views, native_bgr);
@@ -1518,6 +1550,9 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DA
             gpu_addr = solution->gpu_addr;
             cpu_addr = solution->cpu_addr;
             new_info.resources = solution->resources;
+            if (solution->depth != 0) {
+                new_info.size.depth = solution->depth;
+            }
             if (new_info.resources.layers > 1) {
                 // The union may have raised layers above 1 from an info whose stride was
                 // never set (valid when layers == 1); CalculateGuestSizeInBytes needs a
@@ -1601,7 +1636,18 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DA
             // For ignored textures that are GPU modified, try to preserve the data
             // by copying it to the new image if possible, otherwise mark as modified
             const auto base_opt = new_image.TryFindBase(overlap.gpu_addr);
-            if (base_opt.has_value() && overlap.info.format == new_info.format &&
+            // The overlap was not joined, so its levels and layers may not exist in the new image.
+            const auto fits = [&](const SubresourceBase& base) {
+                const auto& src = overlap.info.resources;
+                if (base.level + src.levels > new_info.resources.levels) {
+                    return false;
+                }
+                if (new_info.type == ImageType::e3D) {
+                    return overlap.info.type == ImageType::e3D && src.levels == 1;
+                }
+                return base.layer + src.layers <= new_info.resources.layers;
+            };
+            if (base_opt.has_value() && fits(*base_opt) && overlap.info.format == new_info.format &&
                 overlap.info.num_samples == new_info.num_samples) {
                 // Formats match, copy the data
                 new_image.flags |= ImageFlagBits::GpuModified;
@@ -1678,7 +1724,9 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DA
     for (const auto& copy_object : join_copies_to_do) {
         Image& overlap = slot_images[copy_object.id];
         if (copy_object.is_alias) {
-            if (!overlap.IsSafeDownload()) {
+            // A GPU-side copy: unlike IsSafeDownload, MSAA sources are fine here.
+            if (False(overlap.flags & ImageFlagBits::GpuModified) ||
+                True(overlap.flags & ImageFlagBits::CpuModified)) {
                 continue;
             }
             const auto alias_pointer = join_alias_indices.find(copy_object.id);
@@ -1687,6 +1735,9 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DA
             }
             const AliasedImage& aliased = new_image.aliased_images[alias_pointer->second];
             CopyImage(new_image_id, aliased.id, aliased.copies);
+            if (overlap.info.num_samples != new_image.info.num_samples) {
+                new_image.flags |= ImageFlagBits::GpuModified;
+            }
             new_image.modification_tick = overlap.modification_tick;
             continue;
         }
@@ -1896,7 +1947,9 @@ ImageViewId TextureCache<P>::FindDepthBuffer() {
     if (gpu_addr == 0) {
         return ImageViewId{};
     }
-    const ImageInfo info(regs.zeta, regs.zeta_size, regs.anti_alias_samples_mode);
+    const ImageInfo info(regs.zeta, regs.zeta_size,
+                         DepthMsaaMode(regs.anti_alias_samples_mode, regs.RasterMsaaMode(),
+                                       runtime.CanMixAttachmentSamples()));
     return FindRenderTargetView(info, gpu_addr);
 }
 
@@ -2116,6 +2169,9 @@ void TextureCache<P>::RegisterImage(ImageId image_id) {
     ASSERT_MSG(False(image.flags & ImageFlagBits::Registered),
                "Trying to register an already registered image");
     image.flags |= ImageFlagBits::Registered;
+    if (True(image.flags & ImageFlagBits::GpuModified)) {
+        MarkGpuWritten(image);
+    }
     const auto storage_id = getStorageID(channel_state->gpu_memory.GetID());
     if (storage_id) {
         image.registration_storage_id = *storage_id;
@@ -2484,6 +2540,17 @@ template <class P>
 void TextureCache<P>::MarkModification(ImageBase& image) noexcept {
     image.flags |= ImageFlagBits::GpuModified;
     image.modification_tick = ++modification_tick;
+    MarkGpuWritten(image);
+}
+
+template <class P>
+void TextureCache<P>::MarkGpuWritten(const ImageBase& image) noexcept {
+    // Sparse images sit at their map views, not cpu_addr.
+    if (True(image.flags & ImageFlagBits::Sparse)) {
+        gpu_written.MarkAll();
+        return;
+    }
+    gpu_written.Mark(image.cpu_addr, image.cpu_addr_end - image.cpu_addr);
 }
 
 template <class P>
@@ -2516,6 +2583,7 @@ void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
     image.modification_tick = most_recent_tick;
     if (any_modified) {
         image.flags |= ImageFlagBits::GpuModified;
+        MarkGpuWritten(image);
     }
     std::ranges::sort(aliased_images, [this](const AliasedImage* lhs, const AliasedImage* rhs) {
         const ImageBase& lhs_image = slot_images[lhs->id];
@@ -2592,6 +2660,12 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::vector<Imag
     }
     const auto dst_format_type = GetFormatType(dst.info.format);
     const auto src_format_type = GetFormatType(src.info.format);
+    if (dst.info.num_samples != src.info.num_samples) {
+        if (src_format_type == dst_format_type) {
+            runtime.CopyImageMSAA(dst, src, copies);
+        }
+        return;
+    }
     if (src_format_type == dst_format_type) {
         if constexpr (HAS_EMULATED_COPIES) {
             if (!runtime.CanImageBeCopied(dst, src)) {

@@ -22,6 +22,7 @@
 #include "core/hle/kernel/k_thread.h"
 #include "core/loader/nextendo_dungeons2_patch.h"
 #include "core/loader/home_nat_patch.h"
+#include "core/loader/nextendo_pvzbfn_patch.h"
 #include "core/loader/nextendo_s3_patches.h"
 #include "core/loader/nso.h"
 #include "core/memory.h"
@@ -152,7 +153,7 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
         codeset.segments[i].size = PageAlignSizeNSO(codeset.segments[i].size);
     }
 
-    // [Nextendo] Built-in Dungeons II listen-host patch, before mods so a test mod layers on top.
+    // Built-in Nextendo title patches, before mods so a test mod layers on top.
     if (pm) {
         std::span<u8> section(program_image.data() + module_start,
                               program_image.size() - module_start);
@@ -161,6 +162,8 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
         std::memcpy(image.data() + sizeof(NSOHeader), section.data(), section.size());
         image = Loader::NextendoDungeons2Patch::ApplyIfMatch(pm->GetTitleID(),
                                                              nso_header.build_id, std::move(image));
+        image = Loader::NextendoPvZBfNPatch::ApplyIfMatch(pm->GetTitleID(), nso_header.build_id,
+                                                          std::move(image));
         if (image.size() == sizeof(NSOHeader) + section.size()) {
             std::copy(image.begin() + sizeof(NSOHeader), image.end(), section.data());
         }
@@ -213,16 +216,20 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
     // mod patches exist, and must never go through the mod-patch path at all, since Splatoon 3
     // refuses to boot with any mod enabled (see main.cpp) and these patches need to survive that
     // ban rather than be blocked by it.
-    constexpr std::array<u64, 9> kNplnPatchableTitles{{
+    constexpr std::array<u64, 13> kNplnPatchableTitles{{
         0x0100C2500FC20000ULL, // Splatoon 3
         0x010015100B514000ULL, // Super Mario Bros. Wonder
         0x0100C9A00ECE6000ULL, // Nintendo 64 - Nintendo Classics
-        0x0100C6F01C4F8000ULL, // METAL GEAR SOLID: Peace Walker - Master Collection Version
+        0x0100C6F01C4F8000ULL, // METAL GEAR SOLID: Peace Walker - Master Collection Version (JP)
+        0x010099801C4FA000ULL, // METAL GEAR SOLID: Peace Walker - Master Collection Version (US)
         0x0100F9F00C696000ULL, // Crash Team Racing Nitro-Fueled
         0x01006FD0080B2000ULL, // Overcooked! 2
         0x0100A3D008C5C000ULL, // Pokémon Scarlet
         0x01008F6008C5E000ULL, // Pokémon Violet
         0x0100F43008C44000ULL, // Pokémon Legends: Z-A
+        0x0100453019AA8000ULL, // Xenoblade Chronicles X: Definitive Edition
+        0x0100965017338000ULL, // Super Mario Party Jamboree
+        0x0100B04011742000ULL, // Monster Hunter Rise
     }};
     if (pm && std::find(kNplnPatchableTitles.begin(), kNplnPatchableTitles.end(),
                         pm->GetTitleID()) != kNplnPatchableTitles.end()) {
@@ -234,7 +241,7 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
                     patchable_section.size());
 
         pi_header = Loader::NextendoS3Patches::ApplyIfMatch(nso_header.build_id,
-                                                            std::move(pi_header), name);
+                                                            std::move(pi_header), name, pm->GetTitleID());
 
         if (pi_header.size() >= sizeof(NSOHeader) &&
             pi_header.size() - sizeof(NSOHeader) == patchable_section.size()) {
