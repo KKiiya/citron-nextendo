@@ -35,6 +35,14 @@ int main() {
     assert(std::all_of(field.begin(), field.end(), [](u8 c) { return c == 'x'; }));
     e.app_field.clear(); e.platform = "unknown";
     assert(Description(MakeViewerAppField(e)) == "Nintendo 64");
+    assert(ViewerApplicationId(e) == e.app_id);
+    e.app_id = 0; e.app_detail = "HOME"; e.platform = "citron";
+    assert(ViewerApplicationId(e) == Common::HomeMenuActivity::ApplicationId);
+    assert(e.app_id == 0); // Viewer-only fallback must not change game-facing presence.
+    e.status = 0;
+    assert(ViewerApplicationId(e) == 0);
+    e.status = 2; e.platform = "switch";
+    assert(ViewerApplicationId(e) == 0);
     e.app_id = 0; e.app_detail = "HOME"; e.platform = "ryujinx";
     assert(Description(MakeViewerAppField(e)) == "HOME · Ryujinx");
     e.app_detail.clear(); e.platform.clear();

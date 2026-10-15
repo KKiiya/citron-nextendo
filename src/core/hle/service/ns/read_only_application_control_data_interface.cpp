@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 #include "common/settings.h"
+#include "core/hle/service/ns/home_menu_metadata.h"
 #include "common/nextendo_friends.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
@@ -128,21 +129,31 @@ CachedControl GetCachedControl(Core::System& system, u64 application_id) {
         }
     }
 
-    const FileSys::PatchManager pm{application_id, system.GetFileSystemController(),
-                                   system.GetContentProvider()};
-    const auto control = pm.GetControlMetadata();
-
     CachedControl result;
-    if (control.first != nullptr) {
+    FileSys::RawNACP home_nacp{};
+    if (GetHomeMenuControl(application_id, home_nacp, result.icon_bytes)) {
+        const auto* bytes = reinterpret_cast<const u8*>(&home_nacp);
+        result.nacp_bytes.assign(bytes, bytes + sizeof(home_nacp));
+        result.language_entry = home_nacp.language_entries[0];
         result.has_nacp = true;
-        const auto bytes = control.first->GetRawBytes();
-        result.nacp_bytes.assign(bytes.begin(), bytes.end());
-        result.language_entry = control.first->GetLanguageEntry();
-    }
-    if (control.second != nullptr) {
         result.has_icon = true;
-        result.icon_bytes.resize(control.second->GetSize());
-        control.second->Read(result.icon_bytes.data(), result.icon_bytes.size());
+    } else {
+        const FileSys::PatchManager pm{application_id, system.GetFileSystemController(),
+                                       system.GetContentProvider()};
+        const auto control = pm.GetControlMetadata();
+
+        if (control.first != nullptr) {
+            result.has_nacp = true;
+            const auto bytes = control.first->GetRawBytes();
+            result.nacp_bytes.assign(bytes.begin(), bytes.end());
+            result.language_entry = control.first->GetLanguageEntry();
+        }
+        if (control.second != nullptr) {
+            result.has_icon = true;
+            result.icon_bytes.resize(control.second->GetSize());
+            control.second->Read(result.icon_bytes.data(), result.icon_bytes.size());
+        }
+
     }
 
     // MyPage can display friends' games that are absent from this console's library.

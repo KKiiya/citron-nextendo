@@ -9,6 +9,7 @@
 #include <thread>
 #include <fmt/format.h>
 #include "common/hex_util.h"
+#include "common/home_menu_activity.h"
 #include "common/logging.h"
 #include "common/uuid.h"
 #include "core/core.h"
@@ -401,8 +402,8 @@ FriendViewerV2 MakeFriendViewerV2(const Common::NextendoFriends::Entry& entry,
     out.network_user_id = requested_id != 0 ? requested_id : FriendAdvertisedId(entry);
     std::memcpy(out.nickname.data(), entry.name.data(),
                 std::min(entry.name.size(), out.nickname.size() - 1));
-    out.presence.application_id = entry.app_id;
-    out.presence.presence_group_id = entry.app_id;
+    out.presence.application_id = Common::NextendoFriends::ViewerApplicationId(entry);
+    out.presence.presence_group_id = out.presence.application_id;
     out.presence.status = static_cast<s8>(std::clamp(entry.status, 0, 2));
     out.presence.app_key_value = Common::NextendoFriends::MakeViewerAppField(entry);
     out.is_valid = 1;
@@ -1812,9 +1813,13 @@ void IFriendService::GetUserPresenceViewV2(HLERequestContext& ctx) {
                         Common::NextendoFriends::GetLocalStatus() > 0;
     if (online) {
         presence.status = Common::NextendoFriends::PresenceOnline;
-        // Viewer text only. Do not advertise the HOME menu as a joinable game.
-        constexpr char description[] = "sys_description\0qlaunch Citron\0";
-        std::memcpy(presence.app_key_value.data(), description, sizeof(description));
+        if (system.IsQLaunchSession()) {
+            // Viewer metadata only. Game-facing presence/session fields stay untouched.
+            presence.application_id = Common::HomeMenuActivity::ApplicationId;
+            presence.presence_group_id = Common::HomeMenuActivity::ApplicationId;
+            std::memcpy(presence.app_key_value.data(), Common::HomeMenuActivity::Description,
+                        sizeof(Common::HomeMenuActivity::Description));
+        }
     }
     if (!ctx.CanWriteBuffer() || ctx.GetWriteBufferSize() < sizeof(presence)) {
         IPC::ResponseBuilder rb{ctx, 2};

@@ -6,8 +6,17 @@
 #include <cstring>
 #include <string_view>
 #include "common/nextendo_friends.h"
+#include "common/home_menu_activity.h"
 
 namespace Common::NextendoFriends {
+
+inline u64 ViewerApplicationId(const Entry& entry) {
+    if (entry.app_id != 0) return entry.app_id;
+    const bool emulator = entry.platform == "citron" || entry.platform == "ryujinx" ||
+                          entry.platform == "emulator";
+    return entry.status > 0 && emulator && entry.app_detail == "HOME"
+               ? Common::HomeMenuActivity::ApplicationId : 0;
+}
 
 // MyPage reads sys_description from its viewer-only AppKeyValueStorage.
 // Keep all original game keys and leave the game-facing presence untouched.
