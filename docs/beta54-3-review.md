@@ -189,3 +189,24 @@ this verifies compilation, not a fresh account authorization round trip.
 Original developer source files and executable were restored and hash checked.
 No new desktop/gameplay test was run: the owner deferred their Roaming check.
 Tester feedback is requested as a brief English Discord reply, outside the ZIP.
+
+### Final package after current main integration
+
+Main advanced to `e22392f07` while this package was being prepared (signed NPLN
+catalog and Windows game relaunch changes). Resolved the two new conflicts by
+keeping both Qt includes and applying the existing HOME NAT bridge before the
+upstream signed-catalog selector. No old hardcoded NPLN list was retained.
+
+The final beta54.3.2 runtime is built from merge `a18425cb4b852ebb9940d56c1471ecfd024c2c49`.
+The complete Windows build passed and deployed; source/executable restoration
+was hash checked. Final executable SHA-256:
+`e2fa170872fb61672a256b2d5f8ce78e449573388fdc824cb3e293ff76883660`.
+Final runtime ZIP SHA-256:
+`301b3eac1e3163a532a6b22995ce4b5f396d6fffcaf6fff5d139ac055f884399`.
+ZIP integrity, clean contents and compiled public OAuth metadata checks passed.
+
+On this integration, Linux normal and ASan/UBSan focused suites passed
+[run 38759707364](https://github.com/NextendoNetwork/citron-nextendo/actions/runs/38759707364),
+and the upstream signed catalog/loader/runtime checks passed
+[run 38759707226](https://github.com/NextendoNetwork/citron-nextendo/actions/runs/38759707226).
+These results do not change the pending manual acceptance record.
