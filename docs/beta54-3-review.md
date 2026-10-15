@@ -130,10 +130,40 @@ where applicable. Existing upstream work and license notices are retained.
 - The concurrent domain-object lifecycle test also passed **20 consecutive
   runs** (327,680 append/get/close iterations across eight workers per run).
 - The Linux workflow now runs both ordinary and ASan/UBSan configurations and
-  repeats the concurrency check in both. Results are pending until CI completes.
+  repeats the concurrency check in both. Both configurations passed: [Linux CI run 38699834256](https://github.com/NextendoNetwork/citron-nextendo/actions/runs/38699834256).
 - Existing manual evidence applies to the original beta; new full-emulator
   gameplay and firmware acceptance for the reconciled candidate is pending.
 
 The first Linux build exposed the distro fmt 9 / Citron fmt 12 mismatch before
 tests could run. The workflow now pins the same fmt commit as the emulator;
 that failed setup run is not counted as a passing sanitizer result.
+
+## Reconciled full build and desktop smoke
+
+The main-reconciled runtime sources at `d9eb39908` were compiled with MSYS2
+CLANG64/Clang 22.1.8 on Windows on October 15. Ninja linked the full Citron target
+and finished with `Deployment complete`. Candidate executable SHA-256:
+`76b8e6dedce3664d3202ead0ec6eb3ec0d73e6fd08972b9729b4ffe40578cfe3`.
+This candidate is distinct from the original distributed beta54.3 above.
+
+The existing dependency/build cache was reused through a transactional overlay
+of the reviewed sources. Original developer files and executable were backed up
+and restored with hashes checked. No build55 runtime experiments were included.
+The cached checkout's embedded title still says `38e110fa4-dirty`; use the
+candidate hash and source record here instead of that title for provenance.
+
+The first two full-build attempts stopped on environment configuration (missing
+MSYS env, then native versus POSIX libusb paths). After setting CLANG64 and
+regenerating CMake, the complete build passed. No failed attempt is claimed as
+successful validation.
+
+A separate existing test instance, without replacing the stable beta, booted
+HOME and completed **three consecutive Ctrl+H -> hbmenu -> Ctrl+H -> HOME**
+round trips. JKSV, NXThemes Installer, sphaira and Themezer-NX were visible. Each
+homebrew child terminated and was removed with its caller link cleared. HOME
+selection responded to the mouse afterwards. The test instance was closed
+normally. This does not test a suspended game, physical controller, theme
+installation or network gameplay on this candidate.
+
+See [the manual acceptance matrix](beta54-3-acceptance.md) for the remaining
+release gates. Keep this PR draft for maintainer review and community testing.
