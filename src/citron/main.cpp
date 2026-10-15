@@ -11,6 +11,7 @@
 #include "citron/theme.h"
 #include "common/memory_detect.h"
 #include "citron/bcat_cache_tools.h"
+#include "citron/setup_startup.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -529,9 +530,17 @@ GMainWindow::GMainWindow(std::unique_ptr<QtConfig> config_, bool has_broken_vulk
         [](const auto& dir) {
             return dir.path != "SDMC" && dir.path != "UserNAND" && dir.path != "SysNAND";
         });
-    const bool offer_setup = !UISettings::values.setup_wizard_seen.GetValue() &&
-                             (!ContentManager::AreKeysPresent() || !CheckFirmwarePresence()) &&
-                             !has_game_folder;
+    const bool existing_configuration = config->HadConfigurationAtStartup();
+    if (existing_configuration && !UISettings::values.setup_wizard_seen.GetValue()) {
+        // Migrate users of releases that predate the wizard, in the active data
+        // directory (Roaming by default on Windows), without restarting setup.
+        UISettings::values.setup_wizard_seen = true;
+        UISettings::values.setup_resume = false;
+        config->SaveAllValues();
+    }
+    const bool offer_setup = Citron::SetupStartup::ShouldOffer(
+        existing_configuration, UISettings::values.setup_wizard_seen.GetValue(),
+        ContentManager::AreKeysPresent(), CheckFirmwarePresence(), has_game_folder);
     if (!offer_setup) {
         OnCheckFirmwareDecryption();
     }
@@ -613,7 +622,7 @@ GMainWindow::GMainWindow(std::unique_ptr<QtConfig> config_, bool has_broken_vulk
     // A complete existing installation keeps its normal launch flow. A pristine
     // interactive launch gets guidance before the missing-components warnings.
     if (QApplication::arguments().size() == 1 &&
-        (offer_setup || UISettings::values.setup_resume.GetValue())) {
+        offer_setup) {
         QTimer::singleShot(0, this, &GMainWindow::OnSetupWizard);
     }
 
