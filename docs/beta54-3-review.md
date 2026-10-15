@@ -94,7 +94,7 @@ CI results are tracked below and in the PR. No merge approval is implied.
 
 ## Reproduce the standalone checks
 
-Install a C++20 compiler, CMake, Threads, fmt and nlohmann-json headers. These tests do
+Install a C++20 compiler, CMake, Threads, fmt 12 headers (the revision in CMakeModules/dependencies.cmake) and nlohmann-json headers. These tests do
 not require console firmware or account data, and are independent of the full
 emulator build:
 
@@ -133,3 +133,7 @@ where applicable. Existing upstream work and license notices are retained.
   repeats the concurrency check in both. Results are pending until CI completes.
 - Existing manual evidence applies to the original beta; new full-emulator
   gameplay and firmware acceptance for the reconciled candidate is pending.
+
+The first Linux build exposed the distro fmt 9 / Citron fmt 12 mismatch before
+tests could run. The workflow now pins the same fmt commit as the emulator;
+that failed setup run is not counted as a passing sanitizer result.
