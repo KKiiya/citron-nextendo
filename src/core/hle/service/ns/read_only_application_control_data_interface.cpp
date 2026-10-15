@@ -160,7 +160,7 @@ CachedControl GetCachedControl(Core::System& system, u64 application_id) {
     }
 
     // MyPage can display friends' games that are absent from this console's library.
-    // Use only metadata supplied by Nextendo, and keep installed NACP/icon data preferred.
+    // Prefer installed metadata, then cached Nextendo data, then an explicit placeholder.
     if (const auto remote = Common::NextendoFriends::GetApplicationMetadata(application_id)) {
         FileSys::RawNACP nacp{};
         std::vector<u8> remote_icon;

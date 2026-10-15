@@ -36,7 +36,7 @@ cannot infer Ryujinx or HOME from generic online Emulator activity with empty
 app_id/detail. Do not infer the client from the friend's nickname or call every
 idle emulator qLaunch.
 
-A companion ryujinx-home-presence.patch is saved with the local review artifacts.
+A companion patch is included at docs/patches/ryujinx-1.9.3-home-presence.patch.
 It preserves HOME's actual ID and online status, with an explicit Ryujinx display
 label in the existing opaque presence field, which older servers already relay.
 Other system programs retain their prior behavior. The patch is prepared for
@@ -49,6 +49,8 @@ review, not applied to a running Ryujinx, compiled or submitted upstream.
 - Actual history/presence entries missing metadata receive a neutral Nextendo
   placeholder icon. An absent name shows Application (<title ID>), never a
   guessed title. Installed metadata and actual remote names/icons take priority.
+- Incomplete snapshots are combined for the same title so they cannot hide a
+  name or cover already present in another cached snapshot.
 - External control metadata expires after five seconds so placeholders cannot
   pin stale data for the process lifetime. NS IPC makes no network requests.
 

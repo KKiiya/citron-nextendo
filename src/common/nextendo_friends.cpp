@@ -15,6 +15,7 @@
 #include "common/fs/path_util.h"
 #include "common/nextendo_account.h"
 #include "common/nextendo_friends.h"
+#include "common/nextendo_application_metadata.h"
 
 namespace Common::NextendoFriends {
 
@@ -149,13 +150,14 @@ std::optional<PlayHistoryEntry> GetApplicationMetadata(u64 application_id) {
     if (application_id == 0 || !NextendoAccount::IsLinked()) {
         return std::nullopt;
     }
+    std::optional<PlayHistoryEntry> metadata;
     {
         std::lock_guard lock{g_history_mutex};
         if (g_history_owner == NextendoAccount::GetPid()) {
             for (const auto& [pid, snapshot] : g_histories) {
                 for (const auto& entry : snapshot.entries) {
                     if (entry.application_id == application_id) {
-                        return entry;
+                        MergeApplicationMetadata(metadata, entry);
                     }
                 }
             }
@@ -163,10 +165,11 @@ std::optional<PlayHistoryEntry> GetApplicationMetadata(u64 application_id) {
     }
     for (const auto& entry : Get()) {
         if (entry.app_id == application_id) {
-            return PlayHistoryEntry{application_id, 0, 0, entry.app_name, {}};
+            MergeApplicationMetadata(metadata,
+                PlayHistoryEntry{application_id, 0, 0, entry.app_name, {}});
         }
     }
-    return std::nullopt;
+    return metadata;
 }
 
 void PrefetchPlayHistory(std::vector<u64> pids) {

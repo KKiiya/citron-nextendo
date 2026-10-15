@@ -1,10 +1,22 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include <cassert>
 #include <string_view>
+#include "common/nextendo_application_metadata.h"
 #include "core/hle/service/ns/external_application_metadata.h"
 int main() {
     Common::NextendoFriends::PlayHistoryEntry entry;
     entry.application_id = 0x0100C2500FC20000ULL;
+    std::optional<Common::NextendoFriends::PlayHistoryEntry> combined;
+    Common::NextendoFriends::MergeApplicationMetadata(combined, entry);
+    auto cover = entry; cover.icon = {4, 5, 6};
+    Common::NextendoFriends::MergeApplicationMetadata(combined, cover);
+    auto named = entry; named.name = "Resolved title";
+    Common::NextendoFriends::MergeApplicationMetadata(combined, named);
+    Common::NextendoFriends::MergeApplicationMetadata(combined, entry);
+    assert(combined->name == "Resolved title" && combined->icon == cover.icon);
+    auto other = cover; other.application_id = 1; other.name = "Wrong title";
+    Common::NextendoFriends::MergeApplicationMetadata(combined, other);
+    assert(combined->name == "Resolved title" && combined->application_id == entry.application_id);
     FileSys::RawNACP nacp{};
     std::vector<u8> icon;
     Service::NS::GetExternalApplicationControl(entry, nacp, icon);
