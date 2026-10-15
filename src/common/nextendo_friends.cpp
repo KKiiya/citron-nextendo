@@ -154,7 +154,7 @@ std::optional<PlayHistoryEntry> GetApplicationMetadata(u64 application_id) {
         if (g_history_owner == NextendoAccount::GetPid()) {
             for (const auto& [pid, snapshot] : g_histories) {
                 for (const auto& entry : snapshot.entries) {
-                    if (entry.application_id == application_id && !entry.name.empty()) {
+                    if (entry.application_id == application_id) {
                         return entry;
                     }
                 }
@@ -162,7 +162,7 @@ std::optional<PlayHistoryEntry> GetApplicationMetadata(u64 application_id) {
         }
     }
     for (const auto& entry : Get()) {
-        if (entry.app_id == application_id && !entry.app_name.empty()) {
+        if (entry.app_id == application_id) {
             return PlayHistoryEntry{application_id, 0, 0, entry.app_name, {}};
         }
     }

@@ -10,12 +10,16 @@
 
 namespace Common::NextendoFriends {
 
-inline u64 ViewerApplicationId(const Entry& entry) {
-    if (entry.app_id != 0) return entry.app_id;
+inline bool IsViewerHomeMenu(const Entry& entry) {
+    if (entry.app_id == Common::HomeMenuActivity::ApplicationId) return true;
+    if (entry.app_id != 0) return false;
     const bool emulator = entry.platform == "citron" || entry.platform == "ryujinx" ||
                           entry.platform == "emulator";
-    return entry.status > 0 && emulator && entry.app_detail == "HOME"
-               ? Common::HomeMenuActivity::ApplicationId : 0;
+    return entry.status > 0 && emulator && entry.app_detail == "HOME";
+}
+
+inline u64 ViewerApplicationId(const Entry& entry) {
+    return IsViewerHomeMenu(entry) ? Common::HomeMenuActivity::ApplicationId : entry.app_id;
 }
 
 // MyPage reads sys_description from its viewer-only AppKeyValueStorage.
@@ -32,8 +36,8 @@ inline std::array<u8, 0xC0> MakeViewerAppField(const Entry& entry) {
     else if (entry.platform == "emulator") platform = "Emulator";
 
     std::string description;
-    if (entry.app_id != 0) description = entry.app_name;
-    else if (entry.app_detail == "HOME") description = "HOME";
+    if (IsViewerHomeMenu(entry)) description = Common::HomeMenuActivity::Name;
+    else if (entry.app_id != 0) description = entry.app_name;
     if (!platform.empty()) {
         if (!description.empty()) description += " · ";
         description += platform;

@@ -9,6 +9,7 @@
 #include <vector>
 #include "common/settings.h"
 #include "core/hle/service/ns/home_menu_metadata.h"
+#include "core/hle/service/ns/external_application_metadata.h"
 #include "common/nextendo_friends.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
@@ -104,6 +105,7 @@ void SanitizeJPEGImageSize(std::vector<u8>& image) {
 struct CachedControl {
     bool has_nacp = false;
     bool has_icon = false;
+    bool external_metadata = false;
     std::vector<u8> nacp_bytes;
     std::vector<u8> icon_bytes;
     FileSys::LanguageEntry language_entry{};
@@ -123,7 +125,8 @@ CachedControl GetCachedControl(Core::System& system, u64 application_id) {
         generation = g_control_cache_generation;
         const auto it = g_control_cache.find(application_id);
         if (it != g_control_cache.end() &&
-            ((it->second.second.has_nacp && it->second.second.has_icon) ||
+            ((it->second.second.has_nacp && it->second.second.has_icon &&
+              !it->second.second.external_metadata) ||
              now - it->second.first < std::chrono::seconds{5})) {
             return it->second.second;
         }
@@ -159,21 +162,19 @@ CachedControl GetCachedControl(Core::System& system, u64 application_id) {
     // MyPage can display friends' games that are absent from this console's library.
     // Use only metadata supplied by Nextendo, and keep installed NACP/icon data preferred.
     if (const auto remote = Common::NextendoFriends::GetApplicationMetadata(application_id)) {
+        FileSys::RawNACP nacp{};
+        std::vector<u8> remote_icon;
+        GetExternalApplicationControl(*remote, nacp, remote_icon);
         if (!result.has_nacp) {
-            FileSys::RawNACP nacp{};
-            for (auto& language : nacp.language_entries) {
-                std::memcpy(language.application_name.data(), remote->name.data(),
-                            std::min(remote->name.size(), language.application_name.size() - 1));
-            }
-            nacp.supported_languages = 0xFFFF;
-            nacp.presence_group_id = application_id;
+            result.external_metadata = true;
             const auto* bytes = reinterpret_cast<const u8*>(&nacp);
             result.nacp_bytes.assign(bytes, bytes + sizeof(nacp));
             result.language_entry = nacp.language_entries[0];
             result.has_nacp = true;
         }
-        if (!result.has_icon && !remote->icon.empty()) {
-            result.icon_bytes = remote->icon;
+        if (!result.has_icon) {
+            result.external_metadata = true;
+            result.icon_bytes = std::move(remote_icon);
             result.has_icon = true;
         }
     }

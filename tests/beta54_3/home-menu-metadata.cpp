@@ -10,7 +10,7 @@ int main() {
     assert(Service::NS::GetHomeMenuControl(Common::HomeMenuActivity::ApplicationId, nacp, icon));
     for (const auto& language : nacp.language_entries) {
         assert(std::string_view(language.application_name.data()) == Common::HomeMenuActivity::Name);
-        assert(std::string_view(language.developer_name.data()) == "Citron");
+        assert(std::string_view(language.developer_name.data()) == "Nextendo");
         assert(language.application_name[Common::HomeMenuActivity::Name.size()] == '\0');
     }
     assert(nacp.supported_languages == 0xFFFF);

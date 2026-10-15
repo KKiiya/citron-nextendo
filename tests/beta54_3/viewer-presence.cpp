@@ -44,7 +44,15 @@ int main() {
     e.status = 2; e.platform = "switch";
     assert(ViewerApplicationId(e) == 0);
     e.app_id = 0; e.app_detail = "HOME"; e.platform = "ryujinx";
-    assert(Description(MakeViewerAppField(e)) == "HOME · Ryujinx");
+    assert(Description(MakeViewerAppField(e)) == "qLaunch (Switch Menu) · Ryujinx");
+    e.app_id = Common::HomeMenuActivity::ApplicationId;
+    e.app_name = "Menu HOME"; e.app_detail.clear();
+    assert(Description(MakeViewerAppField(e)) == "qLaunch (Switch Menu) · Ryujinx");
+    e.platform = "citron";
+    assert(Description(MakeViewerAppField(e)) == "qLaunch (Switch Menu) · Citron");
+    e.app_id = 0; e.platform = "emulator";
+    assert(ViewerApplicationId(e) == 0); // Generic idle presence does not prove HOME or Ryujinx.
+    assert(Description(MakeViewerAppField(e)) == "Emulator");
     e.app_detail.clear(); e.platform.clear();
     assert(Description(MakeViewerAppField(e)).empty());
     e.app_id = 1; e.app_name = std::string(174, 'a') + "é";
