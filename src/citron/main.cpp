@@ -7627,11 +7627,14 @@ constexpr u64 kPokemonViolet = 0x01008F6008C5E000ULL;
 constexpr u64 kPokemonScarlet = 0x0100A3D008C5C000ULL;
 constexpr u64 kPokemonLegendsZa = 0x0100F43008C44000ULL;
 constexpr u64 kNintendoSwitchSports = 0x0100D2F00D5C0000ULL;
+constexpr u64 kPokemonSword = 0x0100ABF008968000ULL;
+constexpr u64 kPokemonShield = 0x01008DB008C2C000ULL;
 
 // Titles whose BCAT delivery is a plain package from /api/bcat/<title>, installed as-is.
 bool IsNextendoPackageBcatTitle(u64 title_id) {
     return title_id == kPokemonViolet || title_id == kPokemonScarlet ||
-           title_id == kPokemonLegendsZa || title_id == kNintendoSwitchSports;
+           title_id == kPokemonLegendsZa || title_id == kNintendoSwitchSports ||
+           title_id == kPokemonSword || title_id == kPokemonShield;
 }
 } // Anonymous namespace
 
@@ -7645,6 +7648,8 @@ bool GMainWindow::NextendoByamlRequired(u64 title_id) const {
     case kPokemonScarlet:
     case kPokemonLegendsZa:
     case kNintendoSwitchSports:
+    case kPokemonSword:
+    case kPokemonShield:
         return true;
     default:
         return false;
