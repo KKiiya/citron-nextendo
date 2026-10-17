@@ -7629,12 +7629,16 @@ constexpr u64 kPokemonLegendsZa = 0x0100F43008C44000ULL;
 constexpr u64 kNintendoSwitchSports = 0x0100D2F00D5C0000ULL;
 constexpr u64 kPokemonSword = 0x0100ABF008968000ULL;
 constexpr u64 kPokemonShield = 0x01008DB008C2C000ULL;
+// Super Smash Bros. Ultimate reads its main menu news ticker (line_news folder) from its
+// delivery cache; without it the ticker says "Connect to the Internet".
+constexpr u64 kSuperSmashBrosUltimate = 0x01006A800016E000ULL;
 
 // Titles whose BCAT delivery is a plain package from /api/bcat/<title>, installed as-is.
 bool IsNextendoPackageBcatTitle(u64 title_id) {
     return title_id == kPokemonViolet || title_id == kPokemonScarlet ||
            title_id == kPokemonLegendsZa || title_id == kNintendoSwitchSports ||
-           title_id == kPokemonSword || title_id == kPokemonShield;
+           title_id == kPokemonSword || title_id == kPokemonShield ||
+           title_id == kSuperSmashBrosUltimate;
 }
 } // Anonymous namespace
 
@@ -7650,6 +7654,7 @@ bool GMainWindow::NextendoByamlRequired(u64 title_id) const {
     case kNintendoSwitchSports:
     case kPokemonSword:
     case kPokemonShield:
+    case kSuperSmashBrosUltimate:
         return true;
     default:
         return false;
