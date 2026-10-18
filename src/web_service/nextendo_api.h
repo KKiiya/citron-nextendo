@@ -203,6 +203,12 @@ struct Profile {
 // Uses the stored account token. Own profile only.
 Profile GetProfile();
 
+// The account's country on the Nextendo site (/api/me, account.country), the same field the
+// account server serves real consoles in their Nintendo Account profile. Uses the stored account
+// token with short timeouts, and never signs the session out. nullopt when the request failed;
+// an empty string when the account has no country.
+std::optional<std::string> GetAccountCountry();
+
 // Uploads a new profile picture (base64 JPEG), preserving the rest of the profile blob (the
 // server replaces it wholesale, so this fetches the current profile first and resends it with
 // just the image changed). Returns an error message, or empty on success.

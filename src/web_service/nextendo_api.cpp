@@ -44,6 +44,7 @@ namespace {
 constexpr const char* CanonicalUrl = "https://nextendo.network";
 constexpr const char* ClientId = AppClientId;
 constexpr int TimeoutSeconds = 15;
+constexpr int CountryTimeoutSeconds = 3;
 
 struct Callback {
     std::mutex mutex;
@@ -655,6 +656,45 @@ Profile GetProfile() {
     }
 
     return out;
+}
+
+std::optional<std::string> GetAccountCountry() {
+    const std::string token = Common::NextendoAccount::GetToken();
+    if (token.empty()) {
+        return std::nullopt;
+    }
+
+    // Own client with short timeouts: the game may be waiting for this answer, and the shared
+    // client can be held by a slower request. A 401 is not acted on here; a best-effort lookup
+    // must never sign the player out.
+    httplib::Client client{BaseUrl()};
+    client.set_connection_timeout(CountryTimeoutSeconds);
+    client.set_read_timeout(CountryTimeoutSeconds);
+    client.set_write_timeout(CountryTimeoutSeconds);
+    ApplyCaCertPath(client);
+
+    httplib::Headers headers = BaseHeaders();
+    headers.emplace("Authorization", "Bearer " + token);
+
+    const auto result = client.Get("/api/me", headers);
+    if (!result || result->status != 200) {
+        return std::nullopt;
+    }
+
+    try {
+        const auto json = nlohmann::json::parse(result->body);
+        const auto account = json.find("account");
+        if (account == json.end() || !account->is_object()) {
+            return std::nullopt;
+        }
+        const auto country = account->find("country");
+        if (country == account->end() || !country->is_string()) {
+            return std::string{};
+        }
+        return country->get<std::string>();
+    } catch (const nlohmann::json::exception&) {
+        return std::nullopt;
+    }
 }
 
 std::string PushProfilePicture(const std::string& image_base64) {
