@@ -154,6 +154,16 @@ static std::optional<std::string> GetNextendoRedirectIp(const std::string& host,
         return server_ip;
     }
 
+    // Sonic Racing CrossWorlds signs in to Epic Online Services, then to SEGA's own backend
+    // (prod-api/prod-cdn.sora-online.net); our stand-in serves both.
+    constexpr u64 SonicRacingCrossWorlds = 0x01006E001823C000ULL;
+    if (program_id == SonicRacingCrossWorlds &&
+        (host == "api.epicgames.dev" || host == "prod-api.sora-online.net" ||
+         host == "prod-cdn.sora-online.net")) {
+        LOG_INFO(Service, "Redirecting CrossWorlds host '{}' -> '{}'", host, server_ip);
+        return server_ip;
+    }
+
     if (host.starts_with("nncs2-") && host.ends_with(".n.n.srv.nintendo.net")) {
         LOG_INFO(Service, "[Nextendo] Redirecting NAT check host '{}' -> '{}'", host, nat_ip);
         return nat_ip;

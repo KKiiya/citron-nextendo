@@ -665,8 +665,6 @@ void BSD::Select(HLERequestContext& ctx) {
                    : static_cast<s32>(std::clamp<s64>(tv_sec * 1000 + (tv_usec + 999) / 1000, 0,
                                                       std::numeric_limits<s32>::max()));
 
-    LOG_DEBUG(Service, "called. nfds={} timeout={}", nfds, timeout);
-
     // Same starvation as Poll(): Sonic Racing CrossWorlds parks three Select(-1) calls on
     // eventfds, tying up all three BSD threads so the waking eventfd Write() never runs.
     std::vector<u8> read_in, write_in, error_in;
@@ -684,6 +682,8 @@ void BSD::Select(HLERequestContext& ctx) {
         }
     }
     if (!had_snapshot) {
+        // Re-checks of a deferred call (every heartbeat) are not logged; they flood the log.
+        LOG_DEBUG(Service, "called. nfds={} timeout={}", nfds, timeout);
         const auto copy = [&ctx](std::size_t i, std::vector<u8>& out) {
             if (ctx.CanReadBuffer(i)) {
                 const auto live = ctx.ReadBuffer(i);
@@ -721,9 +721,9 @@ void BSD::Select(HLERequestContext& ctx) {
                                                           std::chrono::milliseconds(timeout)};
                 deferred_select_snapshots[&ctx] =
                     DeferredSelectState{read_in, write_in, error_in, deadline};
+                LOG_DEBUG(Service, "Select deferred (nfds={} timeout={}), eventfd in set",
+                          nfds, timeout);
             }
-            LOG_DEBUG(Service, "Select deferred (nfds={} timeout={}), eventfd in set",
-                      nfds, timeout);
             ctx.SetIsDeferred();
             return;
         }
@@ -743,8 +743,6 @@ void BSD::Poll(HLERequestContext& ctx) {
     const s32 nfds = rp.Pop<s32>();
     const s32 timeout = rp.Pop<s32>();
 
-    LOG_DEBUG(Service, "called. nfds={} timeout={}", nfds, timeout);
-
     // [Nextendo] See sockets.h's deferred_poll_snapshots declaration comment: if this ctx was
     // already deferred once, reuse the pollfd bytes captured back then instead of re-reading
     // live guest memory now, which another IPC call could have reused in the meantime.
@@ -760,6 +758,8 @@ void BSD::Poll(HLERequestContext& ctx) {
         }
     }
     if (!had_snapshot) {
+        // Re-checks of a deferred call (every heartbeat) are not logged; they flood the log.
+        LOG_DEBUG(Service, "called. nfds={} timeout={}", nfds, timeout);
         const auto live_buffer = ctx.ReadBuffer();
         read_buffer.assign(live_buffer.begin(), live_buffer.end());
     }
@@ -801,9 +801,9 @@ void BSD::Poll(HLERequestContext& ctx) {
                                           : std::optional{std::chrono::steady_clock::now() +
                                                            std::chrono::milliseconds(timeout)};
                 deferred_poll_snapshots[&ctx] = DeferredPollState{read_buffer, deadline};
+                LOG_DEBUG(Service, "Poll deferred (nfds={} timeout={}), eventfd in set", nfds,
+                          timeout);
             }
-            LOG_DEBUG(Service, "[Nextendo] Poll deferred (nfds={} timeout={}), eventfd in set",
-                      nfds, timeout);
             ctx.SetIsDeferred();
             return;
         }
