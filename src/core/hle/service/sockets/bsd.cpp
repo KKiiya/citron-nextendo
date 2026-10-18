@@ -667,16 +667,75 @@ void BSD::Select(HLERequestContext& ctx) {
 
     LOG_DEBUG(Service, "called. nfds={} timeout={}", nfds, timeout);
 
-    ExecuteWork(ctx, SelectWork{
-                         .nfds = nfds,
-                         .timeout = timeout,
-                         .read_in = ctx.CanReadBuffer(0) ? ctx.ReadBuffer(0) : std::span<const u8>{},
-                         .write_in = ctx.CanReadBuffer(1) ? ctx.ReadBuffer(1) : std::span<const u8>{},
-                         .error_in = ctx.CanReadBuffer(2) ? ctx.ReadBuffer(2) : std::span<const u8>{},
-                         .read_out = std::vector<u8>(ctx.GetWriteBufferSize(0)),
-                         .write_out = std::vector<u8>(ctx.GetWriteBufferSize(1)),
-                         .error_out = std::vector<u8>(ctx.GetWriteBufferSize(2)),
-                     });
+    // Same starvation as Poll(): Sonic Racing CrossWorlds parks three Select(-1) calls on
+    // eventfds, tying up all three BSD threads so the waking eventfd Write() never runs.
+    std::vector<u8> read_in, write_in, error_in;
+    bool had_snapshot = false;
+    std::optional<std::chrono::steady_clock::time_point> existing_deadline;
+    {
+        std::scoped_lock snapshot_lock{deferred_poll_snapshot_mutex};
+        if (const auto it = deferred_select_snapshots.find(&ctx);
+            it != deferred_select_snapshots.end()) {
+            read_in = it->second.read_in;
+            write_in = it->second.write_in;
+            error_in = it->second.error_in;
+            existing_deadline = it->second.deadline;
+            had_snapshot = true;
+        }
+    }
+    if (!had_snapshot) {
+        const auto copy = [&ctx](std::size_t i, std::vector<u8>& out) {
+            if (ctx.CanReadBuffer(i)) {
+                const auto live = ctx.ReadBuffer(i);
+                out.assign(live.begin(), live.end());
+            }
+        };
+        copy(0, read_in);
+        copy(1, write_in);
+        copy(2, error_in);
+    }
+
+    SelectWork work{
+        .nfds = nfds,
+        .timeout = timeout,
+        .read_in = read_in,
+        .write_in = write_in,
+        .error_in = error_in,
+        .read_out = std::vector<u8>(ctx.GetWriteBufferSize(0)),
+        .write_out = std::vector<u8>(ctx.GetWriteBufferSize(1)),
+        .error_out = std::vector<u8>(ctx.GetWriteBufferSize(2)),
+    };
+
+    if (timeout != 0 && GetBsdDeferralEvent() != nullptr &&
+        SelectSetIncludesEventFd(read_in, write_in, error_in)) {
+        work.timeout = 0;
+        work.Execute(this);
+        const bool nothing_ready = work.ret == 0 && work.bsd_errno == Errno::SUCCESS;
+        const bool expired = existing_deadline && std::chrono::steady_clock::now() >= *existing_deadline;
+        if (nothing_ready && !expired) {
+            if (!had_snapshot) {
+                std::scoped_lock snapshot_lock{deferred_poll_snapshot_mutex};
+                const auto deadline = timeout == -1
+                                          ? std::optional<std::chrono::steady_clock::time_point>{}
+                                          : std::optional{std::chrono::steady_clock::now() +
+                                                          std::chrono::milliseconds(timeout)};
+                deferred_select_snapshots[&ctx] =
+                    DeferredSelectState{read_in, write_in, error_in, deadline};
+            }
+            LOG_DEBUG(Service, "Select deferred (nfds={} timeout={}), eventfd in set",
+                      nfds, timeout);
+            ctx.SetIsDeferred();
+            return;
+        }
+        if (had_snapshot) {
+            std::scoped_lock snapshot_lock{deferred_poll_snapshot_mutex};
+            deferred_select_snapshots.erase(&ctx);
+        }
+        work.Response(ctx);
+        return;
+    }
+
+    ExecuteWork(ctx, std::move(work));
 }
 
 void BSD::Poll(HLERequestContext& ctx) {
@@ -1530,6 +1589,22 @@ void SetFdInMask(std::vector<u8>& mask, s32 fd) {
     }
 }
 } // Anonymous namespace
+
+bool BSD::SelectSetIncludesEventFd(std::span<const u8> read_in, std::span<const u8> write_in,
+                                   std::span<const u8> error_in) {
+    std::vector<s32> fds;
+    ExtractFdsFromMask(read_in, fds);
+    ExtractFdsFromMask(write_in, fds);
+    ExtractFdsFromMask(error_in, fds);
+    std::lock_guard lock(fd_table_mutex);
+    for (const s32 fd : fds) {
+        if (fd >= 0 && fd < static_cast<s32>(MAX_FD) && file_descriptors[fd] &&
+            file_descriptors[fd]->is_eventfd) {
+            return true;
+        }
+    }
+    return false;
+}
 
 std::pair<s32, Errno> BSD::SelectImpl(s32 nfds, s32 timeout, std::span<const u8> read_in,
                                       std::span<const u8> write_in, std::span<const u8> error_in,

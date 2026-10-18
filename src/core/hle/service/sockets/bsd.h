@@ -243,6 +243,9 @@ private:
     // [Nextendo] True if any fd in this poll's set was created by EventFd(). See Poll()'s
     // definition and sockets.h's SetBsdDeferralEvent declaration comment.
     bool PollSetIncludesEventFd(std::span<const u8> read_buffer, s32 nfds) const;
+    // Same for Select()'s fd_set masks.
+    bool SelectSetIncludesEventFd(std::span<const u8> read_in, std::span<const u8> write_in,
+                                  std::span<const u8> error_in);
 
     // [Nextendo] Snapshot of a deferred Poll()'s pollfd bytes, keyed by the HLERequestContext
     // this specific request is riding on. ctx.ReadBuffer() re-reads live guest memory at the
@@ -264,6 +267,13 @@ private:
     };
     std::mutex deferred_poll_snapshot_mutex;
     std::map<const HLERequestContext*, DeferredPollState> deferred_poll_snapshots;
+
+    // Select()'s counterpart (fd_set masks instead of pollfds), guarded by the same mutex.
+    struct DeferredSelectState {
+        std::vector<u8> read_in, write_in, error_in;
+        std::optional<std::chrono::steady_clock::time_point> deadline;
+    };
+    std::map<const HLERequestContext*, DeferredSelectState> deferred_select_snapshots;
     std::pair<s32, Errno> SelectImpl(s32 nfds, s32 timeout, std::span<const u8> read_in,
                                      std::span<const u8> write_in, std::span<const u8> error_in,
                                      std::vector<u8>& read_out, std::vector<u8>& write_out,
