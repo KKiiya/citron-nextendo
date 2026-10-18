@@ -92,6 +92,12 @@ signals:
 
 private:
     void ApplyProfileName(const std::string& name);
+    // Re-reads the account's display name from the server (/api/names, the name the website
+    // and every friend list show) and, when it changed, stores it and renames the active
+    // profile. Games read the profile name through nn::account::GetNickname: Mario Kart 8
+    // Deluxe puts it in its online profile, so a pseudo changed on the website stayed old there
+    // as long as only the name saved at sign-in was applied.
+    void SyncProfileName();
     // Forces the active Switch profile's picture to match the linked Nextendo account's
     // avatar, mirroring ApplyProfileName's username sync. Fetches async since it needs a
     // network round-trip; WriteProfileAvatar does the actual disk write once it lands.
@@ -102,6 +108,7 @@ private:
     Core::System& system;
     QWidget* main_window;
     QTimer friend_poll_timer;
+    QTimer profile_name_timer;
     std::map<u64, s32> last_known_status;
     std::map<u64, int> offline_streak; // consecutive polls seen offline, not yet confirmed
     std::set<u64> last_known_requests;
