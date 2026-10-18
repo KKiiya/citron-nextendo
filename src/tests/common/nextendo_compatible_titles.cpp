@@ -40,31 +40,34 @@ TEST_CASE("Nextendo::CompatibleTitles::CompareVersions", "[common][nextendo]") {
     REQUIRE_FALSE(CompareVersions("99999999999999999999.0", "4.0.1").has_value());
 }
 
-TEST_CASE("Nextendo::CompatibleTitles::IsVersionOk accepts the required version or newer",
+TEST_CASE("Nextendo::CompatibleTitles::IsVersionOk accepts only the exact required version",
           "[common][nextendo]") {
     using Nextendo::CompatibleTitles::IsVersionOk;
     using Nextendo::CompatibleTitles::Table;
 
     REQUIRE(Table().at(MarioKart8Deluxe) == "4.0.1");
     REQUIRE(IsVersionOk(MarioKart8Deluxe, "4.0.1"));
-    REQUIRE(IsVersionOk(MarioKart8Deluxe, "4.0.2"));
-    REQUIRE(IsVersionOk(MarioKart8Deluxe, "4.1.0"));
-    REQUIRE(IsVersionOk(MarioKart8Deluxe, "5.0.0"));
+    REQUIRE(IsVersionOk(MarioKart8Deluxe, "4.0.1.0"));
+    REQUIRE(IsVersionOk(MarioKart8Deluxe, " 4.0.1 "));
+    // A newer update that Nextendo hasn't prepared yet is refused, like an older one.
+    REQUIRE_FALSE(IsVersionOk(MarioKart8Deluxe, "4.0.2"));
+    REQUIRE_FALSE(IsVersionOk(MarioKart8Deluxe, "4.1.0"));
+    REQUIRE_FALSE(IsVersionOk(MarioKart8Deluxe, "5.0.0"));
     REQUIRE_FALSE(IsVersionOk(MarioKart8Deluxe, "4.0.0"));
     REQUIRE_FALSE(IsVersionOk(MarioKart8Deluxe, "3.0.5"));
 
     REQUIRE(IsVersionOk(SuperSmashBrosUltimate, "13.0.5"));
-    REQUIRE(IsVersionOk(SuperSmashBrosUltimate, "13.0.6"));
+    REQUIRE_FALSE(IsVersionOk(SuperSmashBrosUltimate, "13.0.6"));
     REQUIRE_FALSE(IsVersionOk(SuperSmashBrosUltimate, "13.0.4"));
     REQUIRE_FALSE(IsVersionOk(SuperSmashBrosUltimate, "9.0.0"));
 
     REQUIRE(IsVersionOk(DragonBallFighterZ, "01.50"));
     REQUIRE(IsVersionOk(DragonBallFighterZ, "1.50"));
-    REQUIRE(IsVersionOk(DragonBallFighterZ, "01.51"));
+    REQUIRE_FALSE(IsVersionOk(DragonBallFighterZ, "01.51"));
     REQUIRE_FALSE(IsVersionOk(DragonBallFighterZ, "01.49"));
 
     REQUIRE(IsVersionOk(Diablo3, "2.7.7.92380"));
-    REQUIRE(IsVersionOk(Diablo3, "2.7.8"));
+    REQUIRE_FALSE(IsVersionOk(Diablo3, "2.7.8"));
     REQUIRE_FALSE(IsVersionOk(Diablo3, "2.7.7"));
 }
 

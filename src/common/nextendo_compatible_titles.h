@@ -12,10 +12,10 @@
 
 #include "common/common_types.h"
 
-// Minimum game version per title for Nextendo's servers; there's no server-side version-gate
-// endpoint, so this table is the source of truth. The installed version must be this one or a
-// newer one: when a server moves to a new game update, players who already installed it must not
-// be blocked by the emulator while this table still lists the previous version.
+// Required game version per title for Nextendo's servers; there's no server-side version-gate
+// endpoint, so this table is the source of truth. The installed version must be exactly this one,
+// neither older nor newer: a game update that Nextendo hasn't prepared yet must not go online.
+// The numeric comparison below only normalizes how a version is written ("1.1.1.0" == "1.1.1").
 //
 // Lives in common/, not citron/: it's read from both the Qt frontend (game-list "needs
 // update" badge) and core/hle/service/acc (the actual online PID gate) -- same reason
@@ -114,8 +114,9 @@ inline std::optional<int> CompareVersions(std::string_view lhs, std::string_view
     return 0;
 }
 
-// True when the installed version is the required one or newer. An unknown version (empty) is
-// let through, as before; a version that can't be compared numerically must match exactly.
+// True when the installed version is exactly the required one (numeric equality, so "1.1.1.0"
+// matches "1.1.1" and "01.50" matches "1.50"). An unknown version (empty) is let through, as
+// before; a version that can't be compared numerically must match the table text exactly.
 inline bool IsVersionOk(u64 program_id, const std::string& installed_version) {
     const auto& table = Table();
     const auto it = table.find(program_id);
@@ -126,7 +127,7 @@ inline bool IsVersionOk(u64 program_id, const std::string& installed_version) {
         return true;
     }
     const auto order = CompareVersions(installed_version, it->second);
-    return order.has_value() && *order >= 0;
+    return order.has_value() && *order == 0;
 }
 
 } // namespace Nextendo::CompatibleTitles
