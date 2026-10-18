@@ -219,9 +219,8 @@ private:
         size_t remaining_pages{};
         u64 last_used_sequence{};
         u64 hit_count{};
-        // All remaining pages in a live slot are accounted together. A false value is only valid
-        // transiently while a new window is being mapped, before its reservation is committed.
-        bool resource_accounted{};
+        // Remaining pages are never charged to the process resource limit; only mapped memory is,
+        // as on hardware, so a guest that budgets against its limit sees exact numbers.
     };
     std::array<PhysicalMapWindowSlot, PhysicalMapWindowSlots> m_physical_map_windows{};
     KProcessAddress m_physical_map_previous_guest_end{};

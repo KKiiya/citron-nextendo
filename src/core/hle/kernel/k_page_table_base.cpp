@@ -462,10 +462,6 @@ void KPageTableBase::ReleasePhysicalMapWindow(size_t slot_index) {
     auto& slot = m_physical_map_windows[slot_index];
     if (slot.remaining_pages != 0) {
         m_kernel.MemoryManager().ReleaseContinuous(slot.next_physical, slot.remaining_pages);
-        if (slot.resource_accounted && m_resource_limit != nullptr) {
-            m_resource_limit->Release(Svc::LimitableResource::PhysicalMemoryMax,
-                                      slot.remaining_pages * PageSize);
-        }
         m_physical_map_released_tail_pages += slot.remaining_pages;
     }
     slot = {};
@@ -5231,7 +5227,6 @@ Result KPageTableBase::MapPhysicalMemory(KProcessAddress address, size_t size) {
             for (size_t i = 0; i < m_physical_map_windows.size(); ++i) {
                 const auto& slot = m_physical_map_windows[i];
                 if (slot.remaining_pages != 0 && slot.region_key == region_key) {
-                    ASSERT(slot.resource_accounted);
                     matching_slot = i;
                     break;
                 }
@@ -5273,19 +5268,16 @@ Result KPageTableBase::MapPhysicalMemory(KProcessAddress address, size_t size) {
                 }
             }
 
-            // Reserve the memory from the process resource limit.
+            // Reserve exactly the memory being mapped from the process resource limit. Window tails
+            // are not charged: games such as Sonic Racing CrossWorlds budget against their limit
+            // and abort when a request their own accounting says fits is refused.
             const bool continuous_retry_allowed =
                 map_call_id >= m_physical_map_continuous_retry_after_call;
             const bool will_attempt_new_window =
                 !can_consume_window && mapped_size == 0 &&
                 requested_pages <= PhysicalMapWindowPages && continuous_retry_allowed;
-            const size_t reservation_size =
-                can_consume_window
-                    ? 0
-                    : (will_attempt_new_window ? PhysicalMapWindowPages * PageSize
-                                               : size - mapped_size);
             KScopedResourceReservation memory_reservation(
-                m_resource_limit, Svc::LimitableResource::PhysicalMemoryMax, reservation_size);
+                m_resource_limit, Svc::LimitableResource::PhysicalMemoryMax, size - mapped_size);
             R_UNLESS(memory_reservation.Succeeded(), ResultLimitReached);
 
             // Allocate pages for the new memory.
@@ -5297,7 +5289,21 @@ Result KPageTableBase::MapPhysicalMemory(KProcessAddress address, size_t size) {
             bool used_fallback = false;
             bool lru_evicted = false;
             size_t allocation_slot = PhysicalMapWindowSlots;
-            size_t consumed_accounted_pages = 0;
+
+            // Window tails still hold pool pages the guest never asked for. If the pool runs dry,
+            // hand them back and try once more before reporting failure.
+            const auto allocate_pages = [&]() -> Result {
+                Result result = m_kernel.MemoryManager().AllocateForProcess(
+                    std::addressof(pg), requested_pages, m_allocate_option, process_id,
+                    m_heap_fill_value);
+                if (result.IsError() && this->CountActivePhysicalMapWindows() != 0) {
+                    this->ReleaseAllPhysicalMapWindows();
+                    result = m_kernel.MemoryManager().AllocateForProcess(
+                        std::addressof(pg), requested_pages, m_allocate_option, process_id,
+                        m_heap_fill_value);
+                }
+                return result;
+            };
 
             if (can_consume_window) {
                 auto& slot = m_physical_map_windows[matching_slot];
@@ -5309,7 +5315,6 @@ Result KPageTableBase::MapPhysicalMemory(KProcessAddress address, size_t size) {
                 slot.remaining_pages -= requested_pages;
                 slot.last_used_sequence = window_sequence;
                 ++slot.hit_count;
-                consumed_accounted_pages = slot.resource_accounted ? requested_pages : 0;
                 m_physical_map_max_slot_hits =
                     std::max(m_physical_map_max_slot_hits, slot.hit_count);
                 used_window = true;
@@ -5331,9 +5336,7 @@ Result KPageTableBase::MapPhysicalMemory(KProcessAddress address, size_t size) {
                 }
                 if (allocation_slot == PhysicalMapWindowSlots) {
                     allocation_slot = 0;
-                    ASSERT(m_physical_map_windows[allocation_slot].resource_accounted);
                     for (size_t i = 1; i < m_physical_map_windows.size(); ++i) {
-                        ASSERT(m_physical_map_windows[i].resource_accounted);
                         if (m_physical_map_windows[i].last_used_sequence <
                             m_physical_map_windows[allocation_slot].last_used_sequence) {
                             allocation_slot = i;
@@ -5358,10 +5361,7 @@ Result KPageTableBase::MapPhysicalMemory(KProcessAddress address, size_t size) {
                         map_call_id + PhysicalMapWindowPages * PhysicalMapWindowSlots;
                     slot = {};
                     allocation_slot = PhysicalMapWindowSlots;
-                    memory_reservation.Shrink(size - mapped_size);
-                    R_TRY(m_kernel.MemoryManager().AllocateForProcess(
-                        std::addressof(pg), requested_pages, m_allocate_option, process_id,
-                        m_heap_fill_value));
+                    R_TRY(allocate_pages());
                 } else {
                     continuous_succeeded = true;
                     m_physical_map_continuous_retry_after_call = 0;
@@ -5374,7 +5374,6 @@ Result KPageTableBase::MapPhysicalMemory(KProcessAddress address, size_t size) {
                                               PhysicalMapRegionGranularity) != slot.region_key) {
                             this->ReleasePhysicalMapWindow(allocation_slot);
                             allocation_slot = PhysicalMapWindowSlots;
-                            memory_reservation.Shrink(size - mapped_size);
                         }
                     } else {
                         slot = {};
@@ -5384,9 +5383,7 @@ Result KPageTableBase::MapPhysicalMemory(KProcessAddress address, size_t size) {
             } else {
                 used_fallback = true;
                 ++m_physical_map_fallback_count;
-                R_TRY(m_kernel.MemoryManager().AllocateForProcess(
-                    std::addressof(pg), requested_pages, m_allocate_option, process_id,
-                    m_heap_fill_value));
+                R_TRY(allocate_pages());
             }
 
             size_t allocation_nodes = 0;
@@ -5424,10 +5421,6 @@ Result KPageTableBase::MapPhysicalMemory(KProcessAddress address, size_t size) {
             auto window_failure_guard = SCOPE_GUARD {
                 if (allocation_slot < PhysicalMapWindowSlots) {
                     this->ReleasePhysicalMapWindow(allocation_slot);
-                }
-                if (consumed_accounted_pages != 0) {
-                    m_resource_limit->Release(Svc::LimitableResource::PhysicalMemoryMax,
-                                              consumed_accounted_pages * PageSize);
                 }
             };
 
@@ -5642,10 +5635,6 @@ Result KPageTableBase::MapPhysicalMemory(KProcessAddress address, size_t size) {
                 }
 
                 // We succeeded, so commit the memory reservation.
-                if (continuous_succeeded && allocation_slot < PhysicalMapWindowSlots) {
-                    m_physical_map_windows[allocation_slot].resource_accounted =
-                        m_resource_limit != nullptr;
-                }
                 memory_reservation.Commit();
 
                 // Increase our tracked mapped size.
