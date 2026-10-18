@@ -1291,7 +1291,7 @@ private:
         }
 
         // [Nextendo] Version gate: refuse to present a real PID for a title whose installed
-        // version is older than what Nextendo's servers require, reusing the exact same
+        // version isn't exactly the one Nextendo's servers require, reusing the exact same
         // server-side refusal as "no account linked" (0xcafe is not a real registered
         // account, so the gated server rejects it) rather than inventing a new failure mode.
         // Keeps outdated clients off the servers entirely -- reduces load from clients that
@@ -1302,8 +1302,8 @@ private:
             const std::string installed_version = GetInstalledTitleVersion(system);
             if (!Nextendo::CompatibleTitles::IsVersionOk(program_id, installed_version)) {
                 LOG_WARNING(Service_ACC,
-                            "[Nextendo] Refusing online PID: installed version is older than "
-                            "what this title requires for online play");
+                            "[Nextendo] Refusing online PID: installed version isn't the exact "
+                            "version this title requires for online play");
                 return 0xcafe;
             }
         }
