@@ -35,6 +35,7 @@
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
 #include "core/hle/service/acc/acc.h"
+#include "core/hle/service/acc/nextendo_account_country.h"
 #include "core/hle/service/acc/nextendo_cached_account_info.h"
 #include "core/hle/service/acc/acc_aa.h"
 #include "core/hle/service/acc/acc_e.h"
@@ -1310,6 +1311,13 @@ private:
         return raw_pid;
     }
 
+    // True when effective_pid (from GetEffectivePid) is the linked Nextendo account, not the
+    // anonymous or version-gated stub.
+    static bool IsLinkedAccountPid(u64 effective_pid) {
+        return Common::NextendoAccount::IsLinked() && effective_pid != 0 &&
+               effective_pid == Common::NextendoAccount::GetPid();
+    }
+
     void CheckAvailability(HLERequestContext& ctx) {
         LOG_DEBUG(Service_ACC, "(STUBBED) called");
         IPC::ResponseBuilder rb{ctx, 2};
@@ -1328,6 +1336,12 @@ private:
 
     void EnsureIdTokenCacheAsync(HLERequestContext& ctx) {
         LOG_WARNING(Service_ACC, "(STUBBED) called");
+
+        // The game is going online and reads the user base (country) right after: start the
+        // account country lookup now, without waiting for it.
+        if (IsLinkedAccountPid(GetEffectivePid())) {
+            PrepareNextendoAccountCountry();
+        }
 
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(ResultSuccess);
@@ -1377,14 +1391,21 @@ private:
             rb.Push(ResultInvalidArrayLength);
             return;
         }
-        ctx.WriteBufferC(NextendoCachedAccountInfo.data(), NextendoCachedAccountInfo.size(), 0);
+        // The linked account's country, only when its identity is the one presented to the game.
+        // Empty keeps the field zeroed, as before.
+        const std::string country =
+            IsLinkedAccountPid(account_id) ? GetNextendoAccountCountry() : std::string{};
+        const auto user_base = MakeNextendoCachedAccountInfo(country);
+        ctx.WriteBufferC(user_base.data(), user_base.size(), 0);
 
         if (!ctx.BufferDescriptorB().empty()) {
             std::vector<u8> resource(ctx.BufferDescriptorB()[0].Size(), 0);
             ctx.WriteBufferB(resource.data(), resource.size(), 0);
         }
         LOG_INFO(Service_ACC,
-                 "[Nextendo account cache] Returned 0x68-byte user base; shared birthday=2000-01-01.");
+                 "[Nextendo account cache] Returned 0x68-byte user base; shared "
+                 "birthday=2000-01-01; country {}.",
+                 country.size() == 2 ? "set" : "empty");
 
         IPC::ResponseBuilder rb{ctx, 4};
         rb.Push(ResultSuccess);
