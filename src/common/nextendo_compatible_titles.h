@@ -3,13 +3,19 @@
 
 #pragma once
 
+#include <charconv>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "common/common_types.h"
 
-// Only one game version per title can reach Nextendo's servers; there's no server-side
-// version-gate endpoint, so this table is the source of truth.
+// Minimum game version per title for Nextendo's servers; there's no server-side version-gate
+// endpoint, so this table is the source of truth. The installed version must be this one or a
+// newer one: when a server moves to a new game update, players who already installed it must not
+// be blocked by the emulator while this table still lists the previous version.
 //
 // Lives in common/, not citron/: it's read from both the Qt frontend (game-list "needs
 // update" badge) and core/hle/service/acc (the actual online PID gate) -- same reason
@@ -18,7 +24,7 @@ namespace Nextendo::CompatibleTitles {
 
 inline const std::unordered_map<u64, std::string>& Table() {
     static const std::unordered_map<u64, std::string> table{
-        {0x0100152000022000, "4.0.0"},  // Mario Kart 8 Deluxe
+        {0x0100152000022000, "4.0.1"},  // Mario Kart 8 Deluxe
         {0x01006a800016e000, "13.0.5"}, // Super Smash Bros. Ultimate
         {0x0100f8f0000a2000, "5.5.2"},  // Splatoon 2 (EU)
         {0x01003bc0000a0000, "5.5.2"},  // Splatoon 2 (US)
@@ -62,13 +68,65 @@ inline const std::unordered_map<u64, std::string>& Table() {
     return table;
 }
 
+// Splits a display version ("4.0.1", "01.50", "2.7.7.92380") into its numeric parts. Anything
+// that isn't dot-separated decimal numbers gives nullopt.
+inline std::optional<std::vector<u64>> ParseVersion(std::string_view version) {
+    constexpr std::string_view blank = " \t";
+    const auto first = version.find_first_not_of(blank);
+    if (first == std::string_view::npos) {
+        return std::nullopt;
+    }
+    version = version.substr(first, version.find_last_not_of(blank) - first + 1);
+
+    std::vector<u64> parts;
+    while (true) {
+        const auto dot = version.find('.');
+        const std::string_view part = version.substr(0, dot);
+        u64 value = 0;
+        const char* const end = part.data() + part.size();
+        const auto [ptr, ec] = std::from_chars(part.data(), end, value);
+        if (part.empty() || ec != std::errc{} || ptr != end) {
+            return std::nullopt;
+        }
+        parts.push_back(value);
+        if (dot == std::string_view::npos) {
+            return parts;
+        }
+        version.remove_prefix(dot + 1);
+    }
+}
+
+// Numeric comparison, missing parts count as 0 ("1.1.1" == "1.1.1.0", "01.50" == "1.50").
+// Returns <0, 0 or >0, or nullopt when either string isn't a plain numeric version.
+inline std::optional<int> CompareVersions(std::string_view lhs, std::string_view rhs) {
+    const auto a = ParseVersion(lhs);
+    const auto b = ParseVersion(rhs);
+    if (!a || !b) {
+        return std::nullopt;
+    }
+    for (std::size_t i = 0; i < a->size() || i < b->size(); ++i) {
+        const u64 x = i < a->size() ? (*a)[i] : 0;
+        const u64 y = i < b->size() ? (*b)[i] : 0;
+        if (x != y) {
+            return x < y ? -1 : 1;
+        }
+    }
+    return 0;
+}
+
+// True when the installed version is the required one or newer. An unknown version (empty) is
+// let through, as before; a version that can't be compared numerically must match exactly.
 inline bool IsVersionOk(u64 program_id, const std::string& installed_version) {
     const auto& table = Table();
     const auto it = table.find(program_id);
     if (it == table.end()) {
         return true;
     }
-    return installed_version.empty() || installed_version == it->second;
+    if (installed_version.empty() || installed_version == it->second) {
+        return true;
+    }
+    const auto order = CompareVersions(installed_version, it->second);
+    return order.has_value() && *order >= 0;
 }
 
 } // namespace Nextendo::CompatibleTitles
