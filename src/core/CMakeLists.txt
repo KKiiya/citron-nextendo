@@ -1205,6 +1205,8 @@ add_library(core STATIC
     loader/nax.h
     loader/nca.cpp
     loader/nca.h
+    loader/nextendo_amongus_patch.cpp
+    loader/nextendo_amongus_patch.h
     loader/nextendo_dungeons2_patch.cpp
     loader/nextendo_dungeons2_patch.h
     loader/nextendo_pvzbfn_patch.cpp

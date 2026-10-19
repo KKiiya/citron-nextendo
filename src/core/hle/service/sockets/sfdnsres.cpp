@@ -164,6 +164,19 @@ static std::optional<std::string> GetNextendoRedirectIp(const std::string& host,
         return server_ip;
     }
 
+    // Among Us signs in to Epic Online Services, then to Innersloth's account service, and finds
+    // rooms through three regional matchmakers. api.epicgames.dev is shared with other Epic titles,
+    // so it is redirected only while Among Us runs; the Nextendo server forwards anything that is
+    // not Among Us to the real Epic.
+    constexpr u64 AmongUs = 0x0100B0C013912000ULL;
+    if (program_id == AmongUs &&
+        (host == "api.epicgames.dev" || host == "backend.innersloth.com" ||
+         host == "matchmaker.among.us" || host == "matchmaker-eu.among.us" ||
+         host == "matchmaker-as.among.us")) {
+        LOG_INFO(Service, "[Nextendo] Redirecting Among Us host '{}' -> '{}'", host, server_ip);
+        return server_ip;
+    }
+
     if (host.starts_with("nncs2-") && host.ends_with(".n.n.srv.nintendo.net")) {
         LOG_INFO(Service, "[Nextendo] Redirecting NAT check host '{}' -> '{}'", host, nat_ip);
         return nat_ip;

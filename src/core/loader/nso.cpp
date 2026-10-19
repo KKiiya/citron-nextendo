@@ -20,6 +20,7 @@
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_thread.h"
+#include "core/loader/nextendo_amongus_patch.h"
 #include "core/loader/nextendo_dungeons2_patch.h"
 #include "core/loader/nextendo_pvzbfn_patch.h"
 #include "core/loader/nextendo_s3_patches.h"
@@ -167,6 +168,7 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
                                                              nso_header.build_id, std::move(image));
         image = Loader::NextendoPvZBfNPatch::ApplyIfMatch(pm->GetTitleID(), nso_header.build_id,
                                                           std::move(image));
+        image = Loader::NextendoAmongUsPatch::ApplyIfMatch(pm->GetTitleID(), std::move(image));
         if (image.size() == sizeof(NSOHeader) + section.size()) {
             std::copy(image.begin() + sizeof(NSOHeader), image.end(), section.data());
         }

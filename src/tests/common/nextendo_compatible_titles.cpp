@@ -11,6 +11,7 @@ constexpr u64 MarioKart8Deluxe = 0x0100152000022000;
 constexpr u64 SuperSmashBrosUltimate = 0x01006a800016e000;
 constexpr u64 DragonBallFighterZ = 0x0100a250097f0000;
 constexpr u64 Diablo3 = 0x01001b300b9be000;
+constexpr u64 AmongUs = 0x0100b0c013912000;
 constexpr u64 NotTracked = 0x0100000000ffffff;
 
 } // Anonymous namespace
@@ -90,4 +91,15 @@ TEST_CASE("Nextendo::CompatibleTitles table versions are all numeric", "[common]
         REQUIRE(Nextendo::CompatibleTitles::ParseVersion(version).has_value());
         REQUIRE(Nextendo::CompatibleTitles::IsVersionOk(program_id, version));
     }
+}
+
+TEST_CASE("Nextendo::CompatibleTitles Among Us needs exactly 2026.19.0", "[common][nextendo]") {
+    using Nextendo::CompatibleTitles::IsVersionOk;
+
+    REQUIRE(Nextendo::CompatibleTitles::Table().at(AmongUs) == "2026.19.0");
+    REQUIRE(IsVersionOk(AmongUs, "2026.19.0"));
+    // 18.x and 19.x are different Impostor compatibility groups and the patch was tested on 19.0 only.
+    REQUIRE_FALSE(IsVersionOk(AmongUs, "2026.18.0"));
+    REQUIRE_FALSE(IsVersionOk(AmongUs, "2026.19.1"));
+    REQUIRE_FALSE(IsVersionOk(AmongUs, "2026.20.0"));
 }

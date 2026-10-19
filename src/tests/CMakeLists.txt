@@ -16,6 +16,7 @@ add_executable(tests
     common/unique_function.cpp
     common/uint128.cpp
     core/core_timing.cpp
+    core/loader/nextendo_amongus_patch.cpp
     core/hle/service/acc/nextendo_account_country.cpp
     core/internal_network/network.cpp
     precompiled_headers.h
