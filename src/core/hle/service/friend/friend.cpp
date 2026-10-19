@@ -167,8 +167,23 @@ bool FriendMatchesId(const Common::NextendoFriends::Entry& entry, u64 id) {
     return entry.pid == id || (entry.account_id != 0 && entry.account_id == id);
 }
 
+// [Nextendo] Splatoon 3 gets its friend list from NPLN, which names every friend by its NSA
+// (nn::friends NetworkServiceAccountId). If the local friend: service advertises pids instead,
+// the two id spaces never intersect and the in-game friends screen stays empty -- even though
+// every UpdateFriendInfo call resolves. Gate it by title: every other game (Mario Kart 8 and
+// the rest of NEX) keeps the original pid / is_console behaviour.
+constexpr u64 SplatoonThreeTitleId = 0x0100C2500FC20000ULL;
+
+bool WantsNsaIds(Core::System& system) {
+    return system.GetApplicationProcessProgramID() == SplatoonThreeTitleId;
+}
+
 // List a friend under the id their own client announces: account id on hardware, pid on emulators.
-u64 FriendAdvertisedId(const Common::NextendoFriends::Entry& entry) {
+// `prefer_nsa` is the Splatoon 3 override: NPLN names friends by NSA regardless of platform.
+u64 FriendAdvertisedId(const Common::NextendoFriends::Entry& entry, bool prefer_nsa) {
+    if (prefer_nsa && entry.account_id != 0) {
+        return entry.account_id;
+    }
     return entry.is_console && entry.account_id != 0 ? entry.account_id : entry.pid;
 }
 
@@ -224,9 +239,10 @@ std::optional<ProfileImpl> MakeProfile(u64 pid) {
 
 // Records carry the id the caller asked about, or the title cannot pair them with its query.
 FriendImpl MakeFriend(const Common::NextendoFriends::Entry& entry, u64 requested_id = 0,
-                       const Common::UUID* owner = nullptr) {
+                       const Common::UUID* owner = nullptr, bool prefer_nsa = false) {
     FriendImpl out{};
-    const u64 advertised = requested_id != 0 ? requested_id : FriendAdvertisedId(entry);
+    const u64 advertised =
+        requested_id != 0 ? requested_id : FriendAdvertisedId(entry, prefer_nsa);
     // nnSdk's Friend::GetProfileImage checks this Uid is a local user before it asks the service.
     out.user_id = owner != nullptr ? *owner : UidForPid(advertised);
     out.network_user_id = advertised;
@@ -419,17 +435,16 @@ public:
             // 3's one-shot request lands, it's stuck with zero friends for the whole session.
             // Give that one call a short, bounded wait instead. Matches Ryujinx-Nextendo's own
             // fix here (NextendoFriends.GetWarm), which measured this exact race.
-            constexpr u64 SplatoonThreeTitleId = 0x0100C2500FC20000ULL;
-            const auto entries = system.GetApplicationProcessProgramID() == SplatoonThreeTitleId
-                                     ? Common::NextendoFriends::GetWarm(2000)
-                                     : Common::NextendoFriends::Get();
+            const bool want_nsa = WantsNsaIds(system);
+            const auto entries = want_nsa ? Common::NextendoFriends::GetWarm(2000)
+                                          : Common::NextendoFriends::Get();
             const auto capacity = ctx.GetWriteBufferNumElements<u64>();
             std::vector<u64> ids;
             for (const auto& entry : entries) {
                 if (ids.size() >= capacity) {
                     break;
                 }
-                ids.push_back(FriendAdvertisedId(entry));
+                ids.push_back(FriendAdvertisedId(entry, want_nsa));
             }
             if (!ids.empty()) {
                 ctx.WriteBuffer(ids);
@@ -784,6 +799,7 @@ void IFriendService::GetFriendList(HLERequestContext& ctx) {
     const auto pid = rp.Pop<u64>();
     u32 count = 0;
     if (friend_offset == 0 && ctx.CanWriteBuffer()) {
+        const bool want_nsa = WantsNsaIds(system);
         const auto entries = Common::NextendoFriends::Get();
         const auto capacity = ctx.GetWriteBufferNumElements<FriendImpl>();
         std::vector<FriendImpl> list;
@@ -791,7 +807,7 @@ void IFriendService::GetFriendList(HLERequestContext& ctx) {
             if (list.size() >= capacity) {
                 break;
             }
-            list.push_back(MakeFriend(entry));
+            list.push_back(MakeFriend(entry, 0, nullptr, want_nsa));
         }
         if (!list.empty()) {
             ctx.WriteBuffer(list);
@@ -1307,7 +1323,7 @@ void IFriendService::GetFriendListForViewer(HLERequestContext& ctx) {
             if (ids.size() >= capacity) {
                 break;
             }
-            ids.push_back(FriendAdvertisedId(entry));
+            ids.push_back(FriendAdvertisedId(entry, false));
         }
         if (!ids.empty()) {
             ctx.WriteBuffer(ids);
