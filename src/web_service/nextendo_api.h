@@ -209,6 +209,11 @@ Profile GetProfile();
 // an empty string when the account has no country.
 std::optional<std::string> GetAccountCountry();
 
+// The account's NSA on a real Switch (/api/me, "nsa": its baasUserID, 16 hex digits), the id its
+// Switch and emulator friends know it by, as text. nullopt when the request failed or the site does not
+// serve it yet (older nextendo-account).
+std::optional<std::string> GetAccountNsa();
+
 // Uploads a new profile picture (base64 JPEG), preserving the rest of the profile blob (the
 // server replaces it wholesale, so this fetches the current profile first and resends it with
 // just the image changed). Returns an error message, or empty on success.
