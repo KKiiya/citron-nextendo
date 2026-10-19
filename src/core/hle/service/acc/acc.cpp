@@ -283,9 +283,9 @@ std::string BuildIdToken(const std::string& installed_version, u64 program_id) {
     if (!installed_version.empty()) {
         tv_claim = fmt::format(R"("tv":"{}",)", installed_version);
     }
-    // Scarlet shares Violet's NPLN tenant but needs its own app_id; every other title's token
-    // keeps the existing claim shape.
-    if (program_id == 0x0100A3D008C5C000ULL) {
+    // Scarlet shares Violet's NPLN tenant, and Monster Hunter Rise JP/HK shares the US/EU one, but
+    // each needs its own app_id; every other title's token keeps the existing claim shape.
+    if (program_id == 0x0100A3D008C5C000ULL || program_id == 0x0100559011740000ULL) {
         tv_claim += fmt::format(R"("app_id":"{:016X}",)", program_id);
     }
 

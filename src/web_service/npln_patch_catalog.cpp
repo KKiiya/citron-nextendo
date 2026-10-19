@@ -341,7 +341,7 @@ bool IsCompatibleTitle(std::uint64_t title_id) {
     std::call_once(state.initialized, LoadCache);
     std::scoped_lock lock(state.mutex);
 
-    constexpr std::array<std::uint64_t, 12> supported{{
+    constexpr std::array<std::uint64_t, 13> supported{{
         0x0100C2500FC20000ULL, // Splatoon 3
         0x010015100B514000ULL, // Super Mario Bros. Wonder
         0x0100C9A00ECE6000ULL, // Nintendo 64 - Nintendo Classics
@@ -354,6 +354,7 @@ bool IsCompatibleTitle(std::uint64_t title_id) {
         0x0100453019AA8000ULL, // Xenoblade Chronicles X: Definitive Edition
         0x0100965017338000ULL, // Super Mario Party Jamboree
         0x0100B04011742000ULL, // Monster Hunter Rise
+        0x0100559011740000ULL, // Monster Hunter Rise (Japan/Hong Kong)
     }};
     return state.index.HasTitle(title_id) || state.patches.HasTitle(title_id) ||
            std::find(supported.begin(), supported.end(), title_id) != supported.end();
