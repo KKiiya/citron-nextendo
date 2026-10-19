@@ -11,6 +11,7 @@ constexpr u64 MarioKart8Deluxe = 0x0100152000022000;
 constexpr u64 SuperSmashBrosUltimate = 0x01006a800016e000;
 constexpr u64 DragonBallFighterZ = 0x0100a250097f0000;
 constexpr u64 Diablo3 = 0x01001b300b9be000;
+constexpr u64 AmongUs = 0x0100b0c013912000;
 constexpr u64 NotTracked = 0x0100000000ffffff;
 
 } // Anonymous namespace
@@ -89,5 +90,37 @@ TEST_CASE("Nextendo::CompatibleTitles table versions are all numeric", "[common]
         INFO("program_id=" << program_id << " version=" << version);
         REQUIRE(Nextendo::CompatibleTitles::ParseVersion(version).has_value());
         REQUIRE(Nextendo::CompatibleTitles::IsVersionOk(program_id, version));
+    }
+}
+
+TEST_CASE("Nextendo::CompatibleTitles Among Us accepts 2026.19.0 and 2026.18.0 only",
+          "[common][nextendo]") {
+    using Nextendo::CompatibleTitles::IsVersionOk;
+
+    REQUIRE(Nextendo::CompatibleTitles::Table().at(AmongUs) == "2026.19.0");
+    REQUIRE(IsVersionOk(AmongUs, "2026.19.0"));
+    // 18.0 is accepted too: the server handles both side by side (separate Impostor groups).
+    REQUIRE(IsVersionOk(AmongUs, "2026.18.0"));
+    REQUIRE(IsVersionOk(AmongUs, "2026.18.0.0"));
+    REQUIRE(IsVersionOk(AmongUs, " 2026.18.0 "));
+    REQUIRE_FALSE(IsVersionOk(AmongUs, "2026.17.4"));
+    REQUIRE_FALSE(IsVersionOk(AmongUs, "2026.18.1"));
+    REQUIRE_FALSE(IsVersionOk(AmongUs, "2026.19.1"));
+    REQUIRE_FALSE(IsVersionOk(AmongUs, "2026.20.0"));
+    REQUIRE_FALSE(IsVersionOk(AmongUs, "19.0.0"));
+
+    // The exception is not contagious: other titles keep their single exact version.
+    REQUIRE_FALSE(IsVersionOk(MarioKart8Deluxe, "2026.18.0"));
+    REQUIRE(Nextendo::CompatibleTitles::AlsoAccepted().size() == 1);
+}
+
+TEST_CASE("Nextendo::CompatibleTitles extra accepted versions are numeric and tracked titles",
+          "[common][nextendo]") {
+    for (const auto& [program_id, versions] : Nextendo::CompatibleTitles::AlsoAccepted()) {
+        REQUIRE(Nextendo::CompatibleTitles::Table().contains(program_id));
+        for (const auto& version : versions) {
+            REQUIRE(Nextendo::CompatibleTitles::ParseVersion(version).has_value());
+            REQUIRE(Nextendo::CompatibleTitles::IsVersionOk(program_id, version));
+        }
     }
 }
