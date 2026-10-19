@@ -69,6 +69,18 @@ inline const std::unordered_map<u64, std::string>& Table() {
     return table;
 }
 
+// Versions accepted IN ADDITION to the one in Table(), for the rare title whose server handles several
+// game versions side by side. Deliberate exception to "one exact version per title": Among Us 18.0 and
+// 19.0 are separate Impostor compatibility groups and the account service does not depend on the version.
+// The UDP patch is found by code pattern, but has only been tried on 19.0, and how 18.0 writes its display
+// version is not verified.
+inline const std::unordered_map<u64, std::vector<std::string>>& AlsoAccepted() {
+    static const std::unordered_map<u64, std::vector<std::string>> table{
+        {0x0100b0c013912000, {"2026.18.0"}}, // Among Us
+    };
+    return table;
+}
+
 // Splits a display version ("4.0.1", "01.50", "2.7.7.92380") into its numeric parts. Anything
 // that isn't dot-separated decimal numbers gives nullopt.
 inline std::optional<std::vector<u64>> ParseVersion(std::string_view version) {
@@ -128,7 +140,19 @@ inline bool IsVersionOk(u64 program_id, const std::string& installed_version) {
         return true;
     }
     const auto order = CompareVersions(installed_version, it->second);
-    return order.has_value() && *order == 0;
+    if (order.has_value() && *order == 0) {
+        return true;
+    }
+    const auto extra = AlsoAccepted().find(program_id);
+    if (extra != AlsoAccepted().end()) {
+        for (const std::string& accepted : extra->second) {
+            const auto extra_order = CompareVersions(installed_version, accepted);
+            if (installed_version == accepted || (extra_order.has_value() && *extra_order == 0)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 } // namespace Nextendo::CompatibleTitles
