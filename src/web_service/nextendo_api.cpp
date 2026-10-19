@@ -512,6 +512,84 @@ OnlineStatus GetOnlineStatus() {
 
 
 
+namespace {
+
+SaveMeta ParseSaveMeta(const nlohmann::json& j) {
+    SaveMeta m;
+    m.ok = true;
+    m.exists = j.value("exists", false);
+    m.rev = j.value("rev", u64{0});
+    m.updated_at = j.value("updatedAt", std::string{});
+    m.device = j.value("device", std::string{});
+    if (const auto s = j.find("session"); s != j.end() && s->is_object()) {
+        m.session_device = s->value("device", std::string{});
+    }
+    return m;
+}
+
+} // namespace
+
+SaveMeta GetSaveMeta(const std::string& title_id_hex, const std::string& device) {
+    const std::string token = Common::NextendoAccount::GetToken();
+    const auto result = Send("GET", "/api/save/" + title_id_hex + "/meta", {}, token,
+                             {{"X-Nextendo-Device", device}});
+    if (ClearSessionIfRejected(result) || !result || result->status != 200) {
+        return {};
+    }
+    try {
+        return ParseSaveMeta(nlohmann::json::parse(result->body));
+    } catch (const nlohmann::json::exception&) {
+        return {};
+    }
+}
+
+std::optional<std::vector<u8>> PullStrictSave(const std::string& title_id_hex, u64& rev) {
+    rev = 0;
+    const std::string token = Common::NextendoAccount::GetToken();
+    const auto result = Send("GET", "/api/save/" + title_id_hex, {}, token);
+    if (ClearSessionIfRejected(result) || !result || result->status != 200) {
+        return std::nullopt;
+    }
+    try {
+        rev = std::stoull(result->get_header_value("X-Save-Rev"));
+    } catch (...) {
+        return std::nullopt; // no revision: refuse rather than record a wrong base
+    }
+    return std::vector<u8>(result->body.begin(), result->body.end());
+}
+
+StrictPush PushStrictSave(const std::string& title_id_hex, std::span<const u8> data, u64 base_rev,
+                          const std::string& device, u64& new_rev, SaveMeta& cloud) {
+    const std::string token = Common::NextendoAccount::GetToken();
+    const std::string body(reinterpret_cast<const char*>(data.data()), data.size());
+    const auto result = Send("PUT", "/api/save/" + title_id_hex, body, token,
+                             {{"X-Save-Base-Rev", std::to_string(base_rev)},
+                              {"X-Nextendo-Device", device}});
+    if (ClearSessionIfRejected(result) || !result) {
+        return StrictPush::Failed;
+    }
+    try {
+        const auto j = nlohmann::json::parse(result->body);
+        if (result->status == 409) {
+            cloud = ParseSaveMeta(j.value("cloud", nlohmann::json::object()));
+            return StrictPush::Conflict;
+        }
+        if (result->status == 200) {
+            new_rev = j.value("rev", u64{0});
+            return new_rev != 0 ? StrictPush::Sent : StrictPush::Failed;
+        }
+    } catch (const nlohmann::json::exception&) {
+    }
+    LOG_WARNING(WebService, "Nextendo island upload refused (HTTP {})", result->status);
+    return StrictPush::Failed;
+}
+
+void AnnounceSaveSession(const std::string& title_id_hex, const std::string& device) {
+    const std::string token = Common::NextendoAccount::GetToken();
+    (void)Send("POST", "/api/save/" + title_id_hex + "/session", {}, token,
+               {{"X-Nextendo-Device", device}});
+}
+
 std::vector<u8> DownloadBcatSeed(const std::string& title_id_hex) {
     const std::string token = Common::NextendoAccount::GetToken();
     const auto result = Send("GET", "/api/bcat/" + title_id_hex, {}, token);

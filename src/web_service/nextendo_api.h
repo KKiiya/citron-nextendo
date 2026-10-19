@@ -185,6 +185,30 @@ std::optional<std::vector<u8>> PullSave(const std::string& title_id_hex);
 // Returns an error message fit to show the user, or empty on success.
 std::string PushSave(const std::string& title_id_hex, std::span<const u8> data);
 
+// [Nextendo] Island of Animal Crossing: New Horizons ("strict" titles): one save per account, a
+// server revision, and conditional uploads (X-Save-Base-Rev). The server answers 409 with the
+// cloud state when the cloud moved since base_rev, so nothing is ever overwritten by surprise.
+struct SaveMeta {
+    bool ok = false;      // request answered
+    bool exists = false;  // a save is stored
+    u64 rev = 0;
+    std::string updated_at;
+    std::string device;
+    std::string session_device; // another machine said "I am playing" less than 10 min ago
+};
+SaveMeta GetSaveMeta(const std::string& title_id_hex, const std::string& device);
+
+// Downloads a strict save with its revision (rev = 0 when absent).
+std::optional<std::vector<u8>> PullStrictSave(const std::string& title_id_hex, u64& rev);
+
+enum class StrictPush { Sent, Conflict, Failed };
+// On Sent, new_rev holds the stored revision. On Conflict, cloud holds the cloud state.
+StrictPush PushStrictSave(const std::string& title_id_hex, std::span<const u8> data, u64 base_rev,
+                          const std::string& device, u64& new_rev, SaveMeta& cloud);
+
+// "I am playing this island" (shown to the player's other machines for 10 minutes).
+void AnnounceSaveSession(const std::string& title_id_hex, const std::string& device);
+
 struct Profile {
     bool ok = false;
     std::string error;
