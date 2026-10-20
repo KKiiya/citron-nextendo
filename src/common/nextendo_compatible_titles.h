@@ -66,6 +66,7 @@ inline const std::unordered_map<u64, std::string>& Table() {
         {0x010092a00c4b6000, "1.08.00"},     // Friday the 13th: The Game
         {0x010001701248c000, "1.0.4"},       // Super Monkey Ball Banana Mania
         {0x0100b0c013912000, "2026.19.0"},   // Among Us
+        {0x0100b6e012ebe000, "1.1.17"},      // UNO
     };
     return table;
 }
