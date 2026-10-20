@@ -67,6 +67,7 @@
 #include "core/frontend/applets/mii_edit.h"
 #include "core/frontend/applets/software_keyboard.h"
 #include "core/hle/service/acc/profile_manager.h"
+#include "core/hle/service/olsc/nextendo_island.h"
 #include "core/hle/service/am/frontend/applets.h"
 #include "core/hle/service/set/system_settings_server.h"
 #include "frontend_common/content_manager.h"
@@ -1309,6 +1310,8 @@ void GMainWindow::InitializeWidgets() {
     multiplayer_state->setVisible(false);
 
     nextendo_controller = new NextendoController(*system, this, this);
+    // [Nextendo] Island uploads left pending (emulator closed during or before the upload).
+    Service::OLSC::NextendoIsland::RunPendingInBackground();
     nextendo_toast = new NextendoToast(this);
     Nextendo::OnlineCounts::Start(this);
     Nextendo::NzpOnlineCount::Start(this);
@@ -2895,6 +2898,8 @@ void GMainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletP
     UpdateMenuState();
 
     emulation_running = true;
+    // [Nextendo] The island upload of Animal Crossing: New Horizons never runs while it plays.
+    Service::OLSC::NextendoIsland::SetRunningTitle(current_title_id);
     // Honor the persistent setting instead of the UI action state, which
     // can be accidentally toggled by hotkey conflicts during launch.
     if (UISettings::values.fullscreen.GetValue()) {
@@ -3017,6 +3022,12 @@ void GMainWindow::OnEmulationStopped() {
         }
     }
 #endif
+
+    // [Nextendo] Island of Animal Crossing: New Horizons: like the Switch's system service, the
+    // backup enabled in the game is sent after the game, without any window. Marked pending on
+    // disk first; when the window is closing it is only marked and the next launch sends it.
+    Service::OLSC::NextendoIsland::SetRunningTitle(0);
+    Service::OLSC::NextendoIsland::AfterGame(current_title_id, !main_window_is_closing);
 
     // Refresh the game list now that the filesystem is valid again.
     game_list->ClearLaunchOverlays();
@@ -6774,6 +6785,8 @@ void GMainWindow::closeEvent(QCloseEvent* event) {
         }
         ShutdownGame();
     }
+    // [Nextendo] An island upload already running ends first (60 s at most), like Ryujinx.
+    Service::OLSC::NextendoIsland::WaitIdle(60000);
 
     // 2. FORCE the UI to stop talking to controllers
     // Do this BEFORE UnloadInputDevices

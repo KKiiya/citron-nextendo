@@ -3,19 +3,8 @@
 
 #include "citron/nextendo_save_sync.h"
 
-#include <algorithm>
-#include <cctype>
 #include <filesystem>
-#include <fstream>
-#include <map>
-#include <mutex>
-#include <random>
-#include <string>
 #include <vector>
-
-#include <QMessageBox>
-#include <QObject>
-#include <QPushButton>
 
 #ifdef _WIN32
 #include <cstdlib>
@@ -25,7 +14,6 @@
 
 #include <fmt/format.h>
 
-#include "common/fs/path_util.h"
 #include "common/nextendo_compatible_titles.h"
 #include "common/logging.h"
 #include "common/nextendo_account.h"
@@ -33,6 +21,7 @@
 #include "core/file_sys/savedata_factory.h"
 #include "core/file_sys/vfs/vfs.h"
 #include "core/hle/service/filesystem/filesystem.h"
+#include "core/hle/service/olsc/nextendo_island.h"
 
 #ifdef ENABLE_WEB_SERVICE
 #include "web_service/nextendo_api.h"
@@ -53,8 +42,11 @@ namespace {
 // fallback) -- kept inside this guard so an unused-function error doesn't fire on builds with
 // neither (e.g. a non-Windows build without libarchive).
 bool IsEligible(u64 title_id) {
-    return Nextendo::CompatibleTitles::Table().count(title_id) != 0 &&
-          Common::NextendoAccount::IsLinked();
+    // [Nextendo] The island of Animal Crossing: New Horizons is never synced here: the game backs
+    // it up itself through olsc:u (Service::OLSC::NextendoIsland), one island per account.
+    return !Service::OLSC::NextendoIsland::IsStrict(title_id) &&
+           Nextendo::CompatibleTitles::Table().count(title_id) != 0 &&
+           Common::NextendoAccount::IsLinked();
 }
 
 bool HasLocalContent(const FileSys::VirtualDir& dir) {
@@ -132,10 +124,7 @@ bool UnzipToDirectory(std::span<const u8> zip_data, const std::filesystem::path&
 
     archive_read_support_format_zip(a);
     archive_read_support_filter_all(a);
-    // [Nextendo] SECURE_NODOTDOT/SYMLINKS : une entree « ../x » ou un lien ne sort jamais du dossier.
-    archive_write_disk_set_options(ext, ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM |
-                                            ARCHIVE_EXTRACT_SECURE_NODOTDOT |
-                                            ARCHIVE_EXTRACT_SECURE_SYMLINKS);
+    archive_write_disk_set_options(ext, ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM);
     archive_write_disk_set_standard_lookup(ext);
 
     if (archive_read_open_memory(a, zip_data.data(), zip_data.size()) != ARCHIVE_OK) {
@@ -188,11 +177,7 @@ std::vector<u8> ZipDirectoryPowerShell(const FileSys::VirtualDir& dir, u64 title
     std::error_code ec;
     std::filesystem::remove(tmp_zip, ec);
 
-    // [Nextendo] Ile ACNH : Compress-Archive de PowerShell 5.1 ecrit des chemins a barre inverse,
-    // que le serveur refuse ; ZipFile de .NET ecrit « Villager0/personal.dat ».
-    const std::string net_cmd = std::string(R"(powershell -NoProfile -NonInteractive -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory(')") +
-                                real_dir.string() + R"(', ')" + tmp_zip.string() + R"x(')")x";
-    const std::string cmd = title_id == 0x01006F8002326000ULL ? net_cmd : "powershell -NoProfile -NonInteractive -Command \"Compress-Archive -Path \\\"" +
+    const std::string cmd = "powershell -NoProfile -NonInteractive -Command \"Compress-Archive -Path \\\"" +
                              real_dir.string() + "\\*\\\" -DestinationPath \\\"" + tmp_zip.string() +
                              "\\\" -Force\"";
     if (std::system(cmd.c_str()) != 0) {
@@ -235,232 +220,6 @@ bool UnzipToDirectoryPowerShell(std::span<const u8> zip_data, const std::filesys
 
 #endif // !CITRON_ENABLE_LIBARCHIVE && _WIN32
 
-#if defined(CITRON_ENABLE_LIBARCHIVE) || defined(_WIN32)
-
-// ---- [Nextendo] Ile d'Animal Crossing: New Horizons : synchro STRICTE -----------------------
-// Regle de Nintendo (prouvee le 20/10 dans ACNH 3.0.3 et olsc 22.5.0), comme Ryujinx : un
-// emplacement par compte, la derniere ile envoyee remplace la precedente ; l'ile de cet emulateur
-// n'est envoyee qu'une fois liee (etat present) ; la restauration n'est proposee que si le joueur
-// l'a debloquee sur le site (chez Nintendo : le support). Aucun signal « en jeu ailleurs ».
-
-constexpr u64 AcnhTitleId = 0x01006F8002326000ULL;
-
-bool IsStrict(u64 title_id) {
-    return title_id == AcnhTitleId;
-}
-
-struct StrictState {
-    bool present = false;
-    u64 rev = 0;
-    std::string hash;
-};
-
-std::filesystem::path StatePath(u64 title_id) {
-    return Common::FS::GetCitronPath(Common::FS::CitronPath::ConfigDir) / "nextendo_saves" /
-           fmt::format("{}_{:016x}.txt", Common::NextendoAccount::GetPid(), title_id);
-}
-
-StrictState LoadState(u64 title_id) {
-    StrictState st;
-    std::ifstream in(StatePath(title_id));
-    if (in >> st.rev >> st.hash) {
-        st.present = true;
-    }
-    return st;
-}
-
-// Empreinte du contenu (chemins tries, tailles, octets), FNV-1a 64 : sert seulement a savoir si
-// l'ile locale a change depuis la derniere synchro.
-void CollectFiles(const FileSys::VirtualDir& dir, const std::string& prefix,
-                  std::map<std::string, FileSys::VirtualFile>& out) {
-    for (const auto& f : dir->GetFiles()) {
-        if (f) {
-            out.emplace(prefix + f->GetName(), f);
-        }
-    }
-    for (const auto& sub : dir->GetSubdirectories()) {
-        if (sub) {
-            CollectFiles(sub, prefix + sub->GetName() + "/", out);
-        }
-    }
-}
-
-std::string Fingerprint(const FileSys::VirtualDir& dir) {
-    if (!dir || !HasLocalContent(dir)) {
-        return "-";
-    }
-    std::map<std::string, FileSys::VirtualFile> files;
-    CollectFiles(dir, "", files);
-    u64 h = 0xcbf29ce484222325ULL;
-    const auto mix = [&h](const u8* p, size_t n) {
-        for (size_t i = 0; i < n; ++i) {
-            h = (h ^ p[i]) * 0x100000001b3ULL;
-        }
-    };
-    for (const auto& [name, f] : files) {
-        mix(reinterpret_cast<const u8*>(name.data()), name.size());
-        const u64 size = f->GetSize();
-        mix(reinterpret_cast<const u8*>(&size), sizeof(size));
-        const auto bytes = f->ReadAllBytes();
-        mix(bytes.data(), bytes.size());
-    }
-    return fmt::format("{:016x}", h);
-}
-
-// Hash de la derniere capture, pour l'envoi qui suit sur un autre fil.
-std::mutex g_capture_mutex;
-std::string g_capture_hash;
-
-#ifdef ENABLE_WEB_SERVICE
-
-void SaveState(u64 title_id, u64 rev, const std::string& hash) {
-    const auto p = StatePath(title_id);
-    std::error_code ec;
-    std::filesystem::create_directories(p.parent_path(), ec);
-    const auto tmp = std::filesystem::path(p.string() + ".tmp");
-    {
-        std::ofstream out(tmp, std::ios::trunc);
-        out << rev << ' ' << (hash.empty() ? std::string("-") : hash) << std::endl;
-    }
-    std::filesystem::rename(tmp, p, ec);
-}
-
-std::string DeviceId() {
-    static std::mutex m;
-    static std::string id;
-    std::lock_guard lk{m};
-    if (!id.empty()) {
-        return id;
-    }
-    const auto p =
-        Common::FS::GetCitronPath(Common::FS::CitronPath::ConfigDir) / "nextendo_device_id.txt";
-    std::string hex;
-    {
-        std::ifstream in(p);
-        in >> hex;
-    }
-    if (hex.size() != 8 || !std::all_of(hex.begin(), hex.end(), [](char c) {
-            return std::isxdigit(static_cast<unsigned char>(c)) != 0;
-        })) {
-        std::random_device rd;
-        hex = fmt::format("{:08x}", rd());
-        std::ofstream out(p, std::ios::trunc);
-        out << hex;
-    }
-    id = "citron:" + hex;
-    return id;
-}
-
-enum class LaunchAction { Nothing, OfferLink, OfferRestore };
-
-LaunchAction Decide(bool cloud_exists, bool restore_unlocked, bool local_exists, bool linked) {
-    if (cloud_exists && restore_unlocked) {
-        return LaunchAction::OfferRestore;
-    }
-    if (local_exists && !linked) {
-        return LaunchAction::OfferLink;
-    }
-    return LaunchAction::Nothing;
-}
-
-bool ReplaceWithCloud(const FileSys::VirtualDir& save_dir, u64 title_id) {
-    u64 rev = 0;
-    const auto zip = WebService::NextendoApi::PullStrictSave(fmt::format("{:016x}", title_id), rev);
-    if (!zip || zip->empty() || rev == 0) {
-        return false;
-    }
-    // L'ile du cloud remplace TOUT le dossier : un habitant parti ne doit pas rester en local.
-    const std::filesystem::path dest = save_dir->GetFullPath();
-    std::error_code ec;
-    for (const auto& e : std::filesystem::directory_iterator(dest, ec)) {
-        std::filesystem::remove_all(e.path(), ec);
-    }
-#ifdef CITRON_ENABLE_LIBARCHIVE
-    const bool ok = UnzipToDirectory(*zip, dest);
-#else
-    const bool ok = UnzipToDirectoryPowerShell(*zip, dest, title_id);
-#endif
-    if (ok) {
-        SaveState(title_id, rev, Fingerprint(save_dir));
-        LOG_INFO(Frontend, "Nextendo island {:016X}: rev {} restored ({} B)", title_id, rev,
-                 zip->size());
-    }
-    return ok;
-}
-
-bool SendStrict(const FileSys::VirtualDir& save_dir, u64 title_id) {
-#ifdef CITRON_ENABLE_LIBARCHIVE
-    const auto zip = ZipDirectory(save_dir);
-#else
-    const auto zip = ZipDirectoryPowerShell(save_dir, title_id);
-#endif
-    if (zip.empty()) {
-        return false;
-    }
-    u64 new_rev = 0;
-    const auto r = WebService::NextendoApi::PushStrictSave(fmt::format("{:016x}", title_id), zip,
-                                                           DeviceId(), new_rev);
-    if (r == WebService::NextendoApi::StrictPush::Sent) {
-        SaveState(title_id, new_rev, Fingerprint(save_dir));
-        return true;
-    }
-    LOG_WARNING(Frontend, "Nextendo island {:016X}: upload failed", title_id);
-    return false;
-}
-
-void PullStrict(const FileSys::VirtualDir& save_dir, u64 title_id) {
-    const std::string tid = fmt::format("{:016x}", title_id);
-    const auto meta = WebService::NextendoApi::GetSaveMeta(tid, DeviceId());
-    if (!meta.ok) {
-        return; // serveur injoignable : l'envoi suivra si l'ile est liee
-    }
-    const QString title = QObject::tr("Your island in the cloud");
-    const bool local = HasLocalContent(save_dir);
-    const StrictState st = LoadState(title_id);
-    const LaunchAction action = Decide(meta.exists, meta.restore_unlocked, local, st.present);
-    LOG_INFO(Frontend, "Nextendo island {:016X}: cloud rev={} restore={} local={} linked={} -> {}",
-             title_id, meta.rev, meta.restore_unlocked, local, st.present,
-             static_cast<int>(action));
-
-    switch (action) {
-    case LaunchAction::OfferRestore:
-        if (QMessageBox::question(
-                nullptr, title,
-                QObject::tr("Restore is allowed for your account. Restore the island saved on %1 "
-                            "from %2? This emulator's island will be replaced.")
-                    .arg(QString::fromStdString(meta.updated_at),
-                         QString::fromStdString(meta.device))) == QMessageBox::Yes) {
-            ReplaceWithCloud(save_dir, title_id);
-        }
-        break;
-    case LaunchAction::OfferLink: {
-        // Equivalent de l'activation de l'archivage dans le jeu (l'olsc:u de l'emulateur ne la
-        // transmet pas) : rien n'est envoye sans ce oui.
-        const QString text =
-            meta.exists
-                ? QObject::tr("Your account already has an island in the cloud (saved on %1 from "
-                              "%2). Link this emulator's island instead? The island in the cloud "
-                              "will be replaced. To get it back here instead, allow restore from "
-                              "your account page on the website.")
-                      .arg(QString::fromStdString(meta.updated_at),
-                           QString::fromStdString(meta.device))
-                : QObject::tr("Link this emulator's island to your Nextendo account? Like island "
-                              "backup in the game, your account keeps one island: each time you "
-                              "save, this island will replace the one in the cloud.");
-        if (QMessageBox::question(nullptr, title, text) == QMessageBox::Yes) {
-            SendStrict(save_dir, title_id);
-        }
-        break;
-    }
-    case LaunchAction::Nothing:
-        break;
-    }
-}
-
-#endif // ENABLE_WEB_SERVICE
-
-#endif // CITRON_ENABLE_LIBARCHIVE || _WIN32
-
 } // namespace
 
 void Pull(Core::System& system, u64 title_id, bool force) {
@@ -471,12 +230,6 @@ void Pull(Core::System& system, u64 title_id, bool force) {
 
     auto save_dir = system.GetFileSystemController().GetSaveDataFactory().GetTitleSaveDirectory(
         title_id);
-    if (IsStrict(title_id)) {
-        if (save_dir) {
-            PullStrict(save_dir, title_id);
-        }
-        return;
-    }
     if (!force && HasLocalContent(save_dir)) {
         LOG_INFO(Frontend, "Nextendo save pull {:016X}: local save present -> kept (no overwrite)",
                  title_id);
@@ -515,16 +268,6 @@ std::vector<u8> CaptureForPush(Core::System& system, u64 title_id) {
     if (!save_dir) {
         return {};
     }
-    if (IsStrict(title_id)) {
-        // Ile ACNH : rien a envoyer sans lien explicite (etat absent) ni si rien n'a change.
-        const StrictState st = LoadState(title_id);
-        const std::string hash = Fingerprint(save_dir);
-        if (!st.present || hash == st.hash) {
-            return {};
-        }
-        std::lock_guard lk{g_capture_mutex};
-        g_capture_hash = hash;
-    }
 #ifdef CITRON_ENABLE_LIBARCHIVE
     return ZipDirectory(save_dir);
 #else
@@ -542,31 +285,6 @@ void UploadCaptured(u64 title_id, std::vector<u8> zip_bytes) {
     if (zip_bytes.empty()) {
         return;
     }
-#if defined(CITRON_ENABLE_LIBARCHIVE) || defined(_WIN32)
-    if (IsStrict(title_id)) {
-        // Ile liee : le dernier envoi remplace l'ile du compte (regle de Nintendo).
-        const StrictState st = LoadState(title_id);
-        if (!st.present) {
-            return;
-        }
-        std::string hash;
-        {
-            std::lock_guard lk{g_capture_mutex};
-            hash = g_capture_hash;
-        }
-        u64 new_rev = 0;
-        const auto r = WebService::NextendoApi::PushStrictSave(fmt::format("{:016x}", title_id),
-                                                               zip_bytes, DeviceId(), new_rev);
-        if (r == WebService::NextendoApi::StrictPush::Sent) {
-            SaveState(title_id, new_rev, hash);
-            LOG_INFO(Frontend, "Nextendo island {:016X}: rev {} sent ({} B)", title_id, new_rev,
-                     zip_bytes.size());
-        } else {
-            LOG_WARNING(Frontend, "Nextendo island {:016X}: upload failed", title_id);
-        }
-        return;
-    }
-#endif
     const std::string error =
         WebService::NextendoApi::PushSave(fmt::format("{:016x}", title_id), zip_bytes);
     if (!error.empty()) {

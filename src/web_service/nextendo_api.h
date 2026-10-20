@@ -8,6 +8,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 #include "common/common_types.h"
 
@@ -185,27 +186,19 @@ std::optional<std::vector<u8>> PullSave(const std::string& title_id_hex);
 // Returns an error message fit to show the user, or empty on success.
 std::string PushSave(const std::string& title_id_hex, std::span<const u8> data);
 
-// [Nextendo] Island of Animal Crossing: New Horizons ("strict" titles), Nintendo's rule: one slot
-// per account, the last upload replaces the island, and restoring is locked until the player
-// allows it from the website (Nintendo: customer support). One allowance = one download, 24 h.
-struct SaveMeta {
-    bool ok = false;      // request answered
-    bool exists = false;  // a save is stored
-    u64 rev = 0;
-    std::string updated_at;
-    std::string device;
-    bool restore_unlocked = false; // the player allowed a restore from the website
+// [Nextendo] Island of Animal Crossing: New Horizons, backed up by the game through olsc:u
+// (Service::OLSC::NextendoIsland). Raw request on /api/save/<title><suffix> with the account token,
+// on its own connection (an 11 MB island must not hold the shared client nor its 15 s timeout).
+// status = 0 when the server could not be reached; save_rev = the X-Save-Rev header.
+struct IslandResponse {
+    int status = 0;
+    std::string body;
+    std::string save_rev;
 };
-SaveMeta GetSaveMeta(const std::string& title_id_hex, const std::string& device);
-
-// Restores a strict save (the server consumes the website allowance). nullopt when locked (403),
-// absent or on error; rev = 0 when absent.
-std::optional<std::vector<u8>> PullStrictSave(const std::string& title_id_hex, u64& rev);
-
-enum class StrictPush { Sent, Failed };
-// Replaces the island stored for the account. On Sent, new_rev holds the stored revision.
-StrictPush PushStrictSave(const std::string& title_id_hex, std::span<const u8> data,
-                          const std::string& device, u64& new_rev);
+IslandResponse IslandRequest(const std::string& method, const std::string& title_id_hex,
+                             const std::string& suffix, const std::string& body,
+                             const std::vector<std::pair<std::string, std::string>>& headers,
+                             int timeout_seconds);
 
 struct Profile {
     bool ok = false;
