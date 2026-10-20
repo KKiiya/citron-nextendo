@@ -16,6 +16,7 @@
 #include "core/hle/service/service.h"
 #include "core/hle/service/sm/sm.h"
 #include "core/hle/service/sockets/bsd.h"
+#include "core/hle/service/sockets/nextendo_uch.h"
 #include "core/hle/service/ssl/cert_store.h"
 #include "core/hle/service/ssl/nextendo_nat_rewrite.h"
 #include "core/hle/service/ssl/ssl.h"
@@ -155,6 +156,8 @@ private:
     bool did_handshake = false;
     u32 verify_option = 0;
     std::vector<std::string> requested_alpn_protos; // set via SetNextAlpnProto, see DoHandshakeImpl
+    // Ultimate Chicken Horse only: sees the login response of its service hosts to pick up the NXU1 ticket.
+    std::unique_ptr<Service::Sockets::NextendoUch::ResponseObserver> uch_response;
 
     // fd's owning bsd:* port isn't known here; probe each instead of assuming "bsd:u".
     std::shared_ptr<Service::Sockets::BSD> FindBsdServiceOwning(s32 fd) {
@@ -211,6 +214,12 @@ private:
     Result SetHostNameImpl(const std::string& hostname) {
         LOG_DEBUG(Service_SSL, "called. hostname={}", hostname);
         ASSERT(!did_handshake);
+        if (Service::Sockets::NextendoUch::IsTitle(system.GetApplicationProcessProgramID()) &&
+            Service::Sockets::NextendoUch::IsServiceHost(hostname)) {
+            uch_response = std::make_unique<Service::Sockets::NextendoUch::ResponseObserver>();
+        } else {
+            uch_response.reset();
+        }
         return backend->SetHostName(hostname);
     }
 
@@ -288,6 +297,9 @@ private:
             return res;
         }
         out_data->resize(actual_size);
+        if (uch_response && actual_size > 0) {
+            uch_response->Feed(*out_data);
+        }
         LOG_DEBUG(Service_SSL, "Read {} bytes: {}", actual_size,
                   Common::HexToString(*out_data, false));
         return res;

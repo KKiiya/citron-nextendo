@@ -13,6 +13,7 @@ constexpr u64 DragonBallFighterZ = 0x0100a250097f0000;
 constexpr u64 Diablo3 = 0x01001b300b9be000;
 constexpr u64 AmongUs = 0x0100b0c013912000;
 constexpr u64 Uno = 0x0100b6e012ebe000;
+constexpr u64 UltimateChickenHorse = 0x0100fcf002a58000;
 constexpr u64 NotTracked = 0x0100000000ffffff;
 
 } // Anonymous namespace
@@ -135,4 +136,15 @@ TEST_CASE("Nextendo::CompatibleTitles UNO needs exactly 1.1.17", "[common][nexte
     REQUIRE_FALSE(IsVersionOk(Uno, "1.1.16"));
     REQUIRE_FALSE(IsVersionOk(Uno, "1.1.18"));
     REQUIRE_FALSE(IsVersionOk(Uno, "1.2.0"));
+}
+
+TEST_CASE("Nextendo::CompatibleTitles Ultimate Chicken Horse needs exactly 1.13.13.765",
+          "[common][nextendo]") {
+    using Nextendo::CompatibleTitles::IsVersionOk;
+
+    REQUIRE(Nextendo::CompatibleTitles::Table().at(UltimateChickenHorse) == "1.13.13.765");
+    REQUIRE(IsVersionOk(UltimateChickenHorse, "1.13.13.765"));
+    REQUIRE_FALSE(IsVersionOk(UltimateChickenHorse, "1.13.13.764"));
+    REQUIRE_FALSE(IsVersionOk(UltimateChickenHorse, "1.13.14.0"));
+    REQUIRE_FALSE(IsVersionOk(UltimateChickenHorse, "1.13.13"));
 }
