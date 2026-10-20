@@ -52,6 +52,13 @@ inline const std::unordered_map<u64, std::string>& Table() {
         {0x0100abf008968000, "1.3.2"}, // Pokémon Sword
         {0x01008db008c2c000, "1.3.2"}, // Pokémon Shield
         {0x0100c9a00ece6000, "4.2.0"}, // Nintendo 64 - Nintendo Classics
+        // Nintendo Switch Online Classics: the application versions the online-classics servers are
+        // written and tested for. SEGA Genesis (0100b3c014bda000, 3.1.1) is deliberately absent: it
+        // still freezes on suspend in Citron, so it is not offered as compatible yet.
+        {0x0100d870045b6000, "9.1.0"}, // Nintendo Entertainment System - Nintendo Switch Online
+        {0x01008d300c50c000, "6.0.0"}, // Super Nintendo Entertainment System - Nintendo Switch Online
+        {0x0100c62011050000, "4.1.0"}, // Game Boy - Nintendo Switch Online
+        {0x010012f017576000, "3.3.0"}, // Game Boy Advance - Nintendo Switch Online
         {0x010019401051c000, "1.3.2"}, // Mario Strikers: Battle League
         {0x0100f9f00c696000, "1.0.15"},      // Crash Team Racing Nitro-Fueled
         {0x01001b300b9be000, "2.7.7.92380"}, // Diablo III: Eternal Collection
