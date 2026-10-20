@@ -177,6 +177,14 @@ static std::optional<std::string> GetNextendoRedirectIp(const std::string& host,
         return server_ip;
     }
 
+    // UNO signs in through Ubisoft's public services endpoint before any matchmaking. The
+    // redirect is limited to that exact host while UNO runs; other Ubisoft titles are untouched.
+    constexpr u64 Uno = 0x0100B6E012EBE000ULL;
+    if (program_id == Uno && host == "public-ubiservices.ubi.com") {
+        LOG_INFO(Service, "[Nextendo] Redirecting UNO host '{}' -> '{}'", host, server_ip);
+        return server_ip;
+    }
+
     if (host.starts_with("nncs2-") && host.ends_with(".n.n.srv.nintendo.net")) {
         LOG_INFO(Service, "[Nextendo] Redirecting NAT check host '{}' -> '{}'", host, nat_ip);
         return nat_ip;

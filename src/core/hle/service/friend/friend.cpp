@@ -178,6 +178,14 @@ bool WantsNsaIds(Core::System& system) {
     return system.GetApplicationProcessProgramID() == SplatoonThreeTitleId;
 }
 
+// UNO lays out the arguments of GetFriendList with the 8-byte aligned Uid at raw offset 8. Only UNO takes
+// that path; every other title keeps the original parsing and records, untouched.
+constexpr u64 UnoTitleId = 0x0100B6E012EBE000ULL;
+
+bool IsUno(Core::System& system) {
+    return system.GetApplicationProcessProgramID() == UnoTitleId;
+}
+
 // List a friend under the id their own client announces: account id on hardware, pid on emulators.
 // `prefer_nsa` is the Splatoon 3 override: NPLN names friends by NSA regardless of platform.
 u64 FriendAdvertisedId(const Common::NextendoFriends::Entry& entry, bool prefer_nsa) {
@@ -794,6 +802,10 @@ void LoopProcess(Core::System& system) {
 void IFriendService::GetFriendList(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const auto friend_offset = rp.Pop<u32>();
+    const bool uno = IsUno(system);
+    if (uno) {
+        rp.Pop<u32>(); // CMIF padding: the 8-byte aligned Uid starts at raw offset 8.
+    }
     const auto uuid = rp.PopRaw<Common::UUID>();
     [[maybe_unused]] const auto filter = rp.PopRaw<IFriendService::SizedFriendFilter>();
     const auto pid = rp.Pop<u64>();
@@ -807,7 +819,9 @@ void IFriendService::GetFriendList(HLERequestContext& ctx) {
             if (list.size() >= capacity) {
                 break;
             }
-            list.push_back(MakeFriend(entry, 0, nullptr, want_nsa));
+            // GetProfileImage checks that the stored Uid belongs to this console: for UNO, record the
+            // requesting local owner while keeping the friend's own Nextendo account id.
+            list.push_back(MakeFriend(entry, 0, uno ? &uuid : nullptr, want_nsa));
         }
         if (!list.empty()) {
             ctx.WriteBuffer(list);

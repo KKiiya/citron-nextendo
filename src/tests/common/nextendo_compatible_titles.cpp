@@ -12,6 +12,7 @@ constexpr u64 SuperSmashBrosUltimate = 0x01006a800016e000;
 constexpr u64 DragonBallFighterZ = 0x0100a250097f0000;
 constexpr u64 Diablo3 = 0x01001b300b9be000;
 constexpr u64 AmongUs = 0x0100b0c013912000;
+constexpr u64 Uno = 0x0100b6e012ebe000;
 constexpr u64 NotTracked = 0x0100000000ffffff;
 
 } // Anonymous namespace
@@ -123,4 +124,15 @@ TEST_CASE("Nextendo::CompatibleTitles extra accepted versions are numeric and tr
             REQUIRE(Nextendo::CompatibleTitles::IsVersionOk(program_id, version));
         }
     }
+}
+
+TEST_CASE("Nextendo::CompatibleTitles UNO needs exactly 1.1.17", "[common][nextendo]") {
+    using Nextendo::CompatibleTitles::IsVersionOk;
+
+    REQUIRE(Nextendo::CompatibleTitles::Table().at(Uno) == "1.1.17");
+    REQUIRE(IsVersionOk(Uno, "1.1.17"));
+    REQUIRE(IsVersionOk(Uno, "1.1.17.0"));
+    REQUIRE_FALSE(IsVersionOk(Uno, "1.1.16"));
+    REQUIRE_FALSE(IsVersionOk(Uno, "1.1.18"));
+    REQUIRE_FALSE(IsVersionOk(Uno, "1.2.0"));
 }
