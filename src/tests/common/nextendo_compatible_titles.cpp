@@ -13,6 +13,12 @@ constexpr u64 DragonBallFighterZ = 0x0100a250097f0000;
 constexpr u64 Diablo3 = 0x01001b300b9be000;
 constexpr u64 AmongUs = 0x0100b0c013912000;
 constexpr u64 Uno = 0x0100b6e012ebe000;
+constexpr u64 Nes = 0x0100d870045b6000;
+constexpr u64 Snes = 0x01008d300c50c000;
+constexpr u64 GameBoy = 0x0100c62011050000;
+constexpr u64 GameBoyAdvance = 0x010012f017576000;
+constexpr u64 Genesis = 0x0100b3c014bda000;
+constexpr u64 Nintendo64 = 0x0100c9a00ece6000;
 constexpr u64 NotTracked = 0x0100000000ffffff;
 
 } // Anonymous namespace
@@ -135,4 +141,25 @@ TEST_CASE("Nextendo::CompatibleTitles UNO needs exactly 1.1.17", "[common][nexte
     REQUIRE_FALSE(IsVersionOk(Uno, "1.1.16"));
     REQUIRE_FALSE(IsVersionOk(Uno, "1.1.18"));
     REQUIRE_FALSE(IsVersionOk(Uno, "1.2.0"));
+}
+
+TEST_CASE("Nextendo::CompatibleTitles NSO Classics need their exact application version",
+          "[common][nextendo]") {
+    using Nextendo::CompatibleTitles::IsVersionOk;
+    using Nextendo::CompatibleTitles::Table;
+
+    REQUIRE(Table().at(Nes) == "9.1.0");
+    REQUIRE(Table().at(Snes) == "6.0.0");
+    REQUIRE(Table().at(GameBoy) == "4.1.0");
+    REQUIRE(Table().at(GameBoyAdvance) == "3.3.0");
+    REQUIRE(Table().at(Nintendo64) == "4.2.0");
+
+    REQUIRE(IsVersionOk(Nes, "9.1.0"));
+    REQUIRE_FALSE(IsVersionOk(Nes, "9.1.1"));
+    REQUIRE_FALSE(IsVersionOk(Snes, "5.0.0"));
+    REQUIRE_FALSE(IsVersionOk(GameBoy, "1.0.0")); // the base installation is not the tested client
+    REQUIRE_FALSE(IsVersionOk(GameBoyAdvance, "3.4.0"));
+
+    // Genesis still freezes on suspend in Citron: it is not listed as compatible.
+    REQUIRE(Table().count(Genesis) == 0);
 }
