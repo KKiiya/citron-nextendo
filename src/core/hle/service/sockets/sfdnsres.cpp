@@ -19,6 +19,7 @@
 #include "core/core.h"
 #include "core/hle/kernel/svc/nextendo_deadline_watch.h"
 #include "core/hle/service/ipc_helpers.h"
+#include "core/hle/service/sockets/nextendo_uch.h"
 #include "core/hle/service/sockets/sfdnsres.h"
 #include "core/hle/service/sockets/sockets.h"
 #include "core/hle/service/sockets/sockets_translate.h"
@@ -182,6 +183,13 @@ static std::optional<std::string> GetNextendoRedirectIp(const std::string& host,
     constexpr u64 Uno = 0x0100B6E012EBE000ULL;
     if (program_id == Uno && host == "public-ubiservices.ubi.com") {
         LOG_INFO(Service, "[Nextendo] Redirecting UNO host '{}' -> '{}'", host, server_ip);
+        return server_ip;
+    }
+
+    // Ultimate Chicken Horse: brainCloud RPC and its three regional allocation hosts, the same names
+    // Prelude writes into the hosts file. Limited to the title so no other game is redirected.
+    if (NextendoUch::IsTitle(program_id) && NextendoUch::IsServiceHost(host)) {
+        LOG_INFO(Service, "[Nextendo] Redirecting UCH host '{}' -> '{}'", host, server_ip);
         return server_ip;
     }
 

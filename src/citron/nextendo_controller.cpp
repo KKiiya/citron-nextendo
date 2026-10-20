@@ -29,6 +29,7 @@
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/vfs/vfs.h"
 #include "core/hle/service/acc/profile_manager.h"
+#include "core/hle/service/olsc/nextendo_island.h"
 #include "common/nextendo_compatible_titles.h"
 #include "citron/nextendo_chat_client.h"
 #include "citron/nextendo_controller.h"
@@ -287,6 +288,11 @@ void NextendoController::ManualSaveDownload(u64 title_id) {
     // a live session is what actually crashes it, so refuse here regardless of caller.
     if (system.IsPoweredOn()) {
         emit StatusChanged(tr("Stop the running game before downloading a cloud save."));
+        return;
+    }
+    if (Service::OLSC::NextendoIsland::IsStrict(title_id)) {
+        emit StatusChanged(tr("Your island is restored from the game: press - on the title "
+                              "screen and open the island backup settings."));
         return;
     }
     if (!Nextendo::CompatibleTitles::Table().count(title_id)) {

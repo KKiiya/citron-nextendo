@@ -410,6 +410,8 @@ add_library(core STATIC
     hle/service/acc/errors.h
     hle/service/acc/nextendo_account_country.cpp
     hle/service/acc/nextendo_account_country.h
+    hle/service/acc/nextendo_baas_nsa.cpp
+    hle/service/acc/nextendo_baas_nsa.h
     hle/service/acc/profile_manager.cpp
     hle/service/acc/profile_manager.h
     hle/service/am/am.cpp
@@ -968,6 +970,12 @@ add_library(core STATIC
     hle/service/olsc/daemon_controller.h
     hle/service/olsc/native_handle_holder.cpp
     hle/service/olsc/native_handle_holder.h
+    hle/service/olsc/nextendo_island.cpp
+    hle/service/olsc/nextendo_island.h
+    hle/service/olsc/nextendo_island_cloud.cpp
+    hle/service/olsc/olsc_async_result.cpp
+    hle/service/olsc/olsc_async_result.h
+    hle/service/olsc/olsc_results.h
     hle/service/olsc/olsc_service_for_application.cpp
     hle/service/olsc/olsc_service_for_application.h
     hle/service/olsc/olsc_service_for_system_service.cpp
@@ -1120,6 +1128,8 @@ add_library(core STATIC
     hle/service/sockets/dnspriv.h
     hle/service/sockets/ethc.cpp
     hle/service/sockets/ethc.h
+    hle/service/sockets/nextendo_uch.cpp
+    hle/service/sockets/nextendo_uch.h
     hle/service/sockets/nsd.cpp
     hle/service/sockets/nsd.h
     hle/service/sockets/sfdnsres.cpp

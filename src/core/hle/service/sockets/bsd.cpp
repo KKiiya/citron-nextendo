@@ -35,6 +35,7 @@
 #include "core/hle/kernel/svc/nextendo_deadline_watch.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/sockets/bsd.h"
+#include "core/hle/service/sockets/nextendo_uch.h"
 #include "core/hle/service/sockets/sfdnsres.h"
 #include "core/hle/service/sockets/sockets_translate.h"
 #include "core/hle/service/ssl/ssl_pending_registry.h"
@@ -643,8 +644,19 @@ void BSD::Socket(HLERequestContext& ctx) {
 
     LOG_DEBUG(Service, "called. domain={} type={} protocol={}", domain, type, protocol);
 
-    const auto [fd, bsd_errno] = SocketImpl(static_cast<Domain>(domain), static_cast<Type>(type),
-                                            static_cast<Protocol>(protocol));
+    // Ultimate Chicken Horse opens its UNET transport socket with the selector 0x10000000 and protocol IP,
+    // which has no socket type of its own. It is a datagram socket.
+    u32 effective_type = type;
+    u32 effective_protocol = protocol;
+    if (protocol == static_cast<u32>(Protocol::Unspecified) &&
+        NextendoUch::IsUdpSelector(system.GetApplicationProcessProgramID(), type)) {
+        effective_type = static_cast<u32>(Type::DGRAM);
+        effective_protocol = static_cast<u32>(Protocol::UDP);
+    }
+
+    const auto [fd, bsd_errno] =
+        SocketImpl(static_cast<Domain>(domain), static_cast<Type>(effective_type),
+                   static_cast<Protocol>(effective_protocol));
 
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(ResultSuccess);
@@ -2540,6 +2552,31 @@ std::pair<s32, Errno> BSD::SendToImpl(s32 fd, u32 flags, std::span<const u8> mes
         LOG_DEBUG(Service, "SendTo fd={} -> {}:{} len={} {}", fd,
                   Network::IPv4AddressToRedactedString(p_addr_in->ip), p_addr_in->portno,
                   message.size(), DescribePrudpLite(message));
+    }
+
+    // Ultimate Chicken Horse: the NXU1 admission frame goes out first, from this same gameplay socket,
+    // in front of the game's own connect request to the relay.
+    if (!descriptor.is_connection_based && p_addr_in) {
+        std::array<u8, NextendoUch::FrameSize> frame{};
+        switch (NextendoUch::Bootstrap(system.GetApplicationProcessProgramID(), message,
+                                       p_addr_in->ip, p_addr_in->portno, frame)) {
+        case NextendoUch::BootstrapResult::NotApplicable:
+            break;
+        case NextendoUch::BootstrapResult::Refused:
+            return {-1, Errno::CONNREFUSED};
+        case NextendoUch::BootstrapResult::SendFrame: {
+            const auto [sent, send_errno] =
+                file_descriptors[fd]->socket->SendTo(flags, std::span<const u8>(frame), p_addr_in);
+            frame.fill(0);
+            if (send_errno != Network::Errno::SUCCESS) {
+                return Translate(std::make_pair(sent, send_errno));
+            }
+            if (sent != static_cast<s32>(NextendoUch::FrameSize)) {
+                return {-1, Errno::MSGSIZE};
+            }
+            break;
+        }
+        }
     }
 
     return Translate(file_descriptors[fd]->socket->SendTo(flags, message, p_addr_in));

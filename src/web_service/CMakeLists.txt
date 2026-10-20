@@ -4,8 +4,6 @@
 add_library(web_service STATIC
     announce_room_json.cpp
     announce_room_json.h
-    mk8d_country_flags.cpp
-    mk8d_country_flags.h
     nextendo_api.cpp
     nextendo_api.h
     npln_patch_catalog.cpp

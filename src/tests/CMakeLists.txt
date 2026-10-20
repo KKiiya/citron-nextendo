@@ -18,6 +18,8 @@ add_executable(tests
     core/core_timing.cpp
     core/loader/nextendo_amongus_patch.cpp
     core/hle/service/acc/nextendo_account_country.cpp
+    core/hle/service/olsc/nextendo_island.cpp
+    core/hle/service/sockets/nextendo_uch.cpp
     core/internal_network/network.cpp
     precompiled_headers.h
     video_core/memory_tracker.cpp
