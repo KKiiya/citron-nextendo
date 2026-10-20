@@ -21,6 +21,7 @@
 #include "core/file_sys/savedata_factory.h"
 #include "core/file_sys/vfs/vfs.h"
 #include "core/hle/service/filesystem/filesystem.h"
+#include "core/hle/service/olsc/nextendo_island.h"
 
 #ifdef ENABLE_WEB_SERVICE
 #include "web_service/nextendo_api.h"
@@ -41,8 +42,11 @@ namespace {
 // fallback) -- kept inside this guard so an unused-function error doesn't fire on builds with
 // neither (e.g. a non-Windows build without libarchive).
 bool IsEligible(u64 title_id) {
-    return Nextendo::CompatibleTitles::Table().count(title_id) != 0 &&
-          Common::NextendoAccount::IsLinked();
+    // [Nextendo] The island of Animal Crossing: New Horizons is never synced here: the game backs
+    // it up itself through olsc:u (Service::OLSC::NextendoIsland), one island per account.
+    return !Service::OLSC::NextendoIsland::IsStrict(title_id) &&
+           Nextendo::CompatibleTitles::Table().count(title_id) != 0 &&
+           Common::NextendoAccount::IsLinked();
 }
 
 bool HasLocalContent(const FileSys::VirtualDir& dir) {

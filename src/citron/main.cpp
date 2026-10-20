@@ -67,6 +67,7 @@
 #include "core/frontend/applets/mii_edit.h"
 #include "core/frontend/applets/software_keyboard.h"
 #include "core/hle/service/acc/profile_manager.h"
+#include "core/hle/service/olsc/nextendo_island.h"
 #include "core/hle/service/am/frontend/applets.h"
 #include "core/hle/service/set/system_settings_server.h"
 #include "frontend_common/content_manager.h"
@@ -187,7 +188,6 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 #include "citron/util/rainbow_style.h"
 #include "common/settings.h"
 #ifdef ENABLE_WEB_SERVICE
-#include "web_service/mk8d_country_flags.h"
 #include "web_service/nextendo_api.h"
 #include "web_service/npln_patch_catalog.h"
 #include "web_service/ssbu_mod_installer.h"
@@ -1310,6 +1310,8 @@ void GMainWindow::InitializeWidgets() {
     multiplayer_state->setVisible(false);
 
     nextendo_controller = new NextendoController(*system, this, this);
+    // [Nextendo] Island uploads left pending (emulator closed during or before the upload).
+    Service::OLSC::NextendoIsland::RunPendingInBackground();
     nextendo_toast = new NextendoToast(this);
     Nextendo::OnlineCounts::Start(this);
     Nextendo::NzpOnlineCount::Start(this);
@@ -2896,6 +2898,8 @@ void GMainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletP
     UpdateMenuState();
 
     emulation_running = true;
+    // [Nextendo] The island upload of Animal Crossing: New Horizons never runs while it plays.
+    Service::OLSC::NextendoIsland::SetRunningTitle(current_title_id);
     // Honor the persistent setting instead of the UI action state, which
     // can be accidentally toggled by hotkey conflicts during launch.
     if (UISettings::values.fullscreen.GetValue()) {
@@ -3018,6 +3022,12 @@ void GMainWindow::OnEmulationStopped() {
         }
     }
 #endif
+
+    // [Nextendo] Island of Animal Crossing: New Horizons: like the Switch's system service, the
+    // backup enabled in the game is sent after the game, without any window. Marked pending on
+    // disk first; when the window is closing it is only marked and the next launch sends it.
+    Service::OLSC::NextendoIsland::SetRunningTitle(0);
+    Service::OLSC::NextendoIsland::AfterGame(current_title_id, !main_window_is_closing);
 
     // Refresh the game list now that the filesystem is valid again.
     game_list->ClearLaunchOverlays();
@@ -6775,6 +6785,8 @@ void GMainWindow::closeEvent(QCloseEvent* event) {
         }
         ShutdownGame();
     }
+    // [Nextendo] An island upload already running ends first (60 s at most), like Ryujinx.
+    Service::OLSC::NextendoIsland::WaitIdle(60000);
 
     // 2. FORCE the UI to stop talking to controllers
     // Do this BEFORE UnloadInputDevices
@@ -8125,161 +8137,6 @@ void GMainWindow::InstallSsbuSkylineMods(u64 program_id) {
         return;
     }
     RunSsbuSkylineModsInstallWithProgress(program_id);
-#else
-    (void)program_id;
-#endif
-}
-
-GMainWindow::Mk8dCountryFlagOutcome GMainWindow::InstallMk8dCountryFlagBlocking(
-    u64 program_id, std::string country_code) {
-    Mk8dCountryFlagOutcome outcome{};
-#ifdef ENABLE_WEB_SERVICE
-    {
-        const FileSys::PatchManager pm(program_id, system->GetFileSystemController(),
-                                       system->GetContentProvider());
-        const auto metadata = pm.GetControlMetadata();
-        if (metadata.first != nullptr) {
-            outcome.detected_version = metadata.first->GetVersionString();
-        }
-    }
-
-    const auto fetch = WebService::Mk8dCountryFlags::FetchCountryFlagPatch(country_code);
-    outcome.release_page_url = fetch.release_page_url;
-    if (!fetch.success) {
-        outcome.error = fetch.error;
-        return outcome;
-    }
-
-    const auto sdmc_root = Common::FS::GetCitronPath(Common::FS::CitronPath::SDMCDir);
-    const auto exefs_dir = sdmc_root / "atmosphere" / "contents" /
-                           fmt::format("{:016X}", program_id) / "exefs";
-    std::error_code ec;
-    std::filesystem::create_directories(exefs_dir, ec);
-    if (ec) {
-        outcome.error = "failed to create exefs mod folder: " + ec.message();
-        return outcome;
-    }
-
-    const auto ips_path =
-        exefs_dir / (std::string{WebService::Mk8dCountryFlags::MK8D_BUILD_ID} + ".ips");
-    std::ofstream out{ips_path, std::ios::binary};
-    if (!out) {
-        outcome.error = "failed to write patch file to SD card";
-        return outcome;
-    }
-    out.write(reinterpret_cast<const char*>(fetch.data.data()),
-             static_cast<std::streamsize>(fetch.data.size()));
-    outcome.success = true;
-#else
-    (void)program_id;
-    (void)country_code;
-#endif
-    return outcome;
-}
-
-void GMainWindow::RunMk8dCountryFlagInstallWithProgress(u64 program_id,
-                                                        const std::string& country_code) {
-#ifdef ENABLE_WEB_SERVICE
-    QProgressDialog progress(tr("Installing country flag patch..."), QString{}, 0, 0, this);
-    progress.setWindowModality(Qt::WindowModal);
-    progress.setCancelButton(nullptr);
-    progress.show();
-
-    auto future = QtConcurrent::run(
-        [this, program_id, country_code] {
-            return InstallMk8dCountryFlagBlocking(program_id, country_code);
-        });
-    while (!future.isFinished()) {
-        QCoreApplication::processEvents();
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    progress.close();
-
-    const auto outcome = future.result();
-    QString summary;
-    if (outcome.success) {
-        summary = tr("Country flag installed. This takes effect the next time you launch "
-                     "Mario Kart 8 Deluxe.");
-        if (!outcome.detected_version.empty() &&
-            outcome.detected_version != WebService::Mk8dCountryFlags::MK8D_REQUIRED_VERSION) {
-            summary += tr("<br><br>Warning: your installed version is %1, but this patch "
-                          "requires version %2. It will not take effect until the game is "
-                          "updated to that version.")
-                          .arg(QString::fromStdString(outcome.detected_version).toHtmlEscaped(),
-                               QString::fromLatin1(
-                                   WebService::Mk8dCountryFlags::MK8D_REQUIRED_VERSION));
-        }
-    } else {
-        summary = tr("Failed to install: %1")
-                     .arg(QString::fromStdString(outcome.error).toHtmlEscaped());
-        if (!outcome.release_page_url.empty()) {
-            summary += tr("<br><br>You can download and install it manually from "
-                          "<a href=\"%1\">%1</a>.")
-                          .arg(QString::fromStdString(outcome.release_page_url));
-        }
-    }
-
-    QMessageBox msg_box(outcome.success ? QMessageBox::Information : QMessageBox::Warning,
-                       tr("MK8D Country Flag"), summary, QMessageBox::Ok, this);
-    if (auto* label = msg_box.findChild<QLabel*>(QStringLiteral("qt_msgbox_label"))) {
-        label->setOpenExternalLinks(true);
-    }
-    msg_box.exec();
-#else
-    (void)program_id;
-    (void)country_code;
-#endif
-}
-
-void GMainWindow::InstallMk8dCountryFlag(u64 program_id) {
-#ifdef ENABLE_WEB_SERVICE
-    if (!WebService::Mk8dCountryFlags::IsMk8dTitleId(program_id)) {
-        return;
-    }
-
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Set MK8D Country Flag"));
-
-    auto* layout = new QVBoxLayout(&dialog);
-    auto* info_label = new QLabel(
-        tr("Pick the country you want to appear as online. This writes an exefs patch to "
-           "your SD card and requires Mario Kart 8 Deluxe version %1.")
-            .arg(QString::fromLatin1(WebService::Mk8dCountryFlags::MK8D_REQUIRED_VERSION)));
-    info_label->setWordWrap(true);
-    layout->addWidget(info_label);
-
-    auto* combo = new QComboBox(&dialog);
-    std::vector<WebService::Mk8dCountryFlags::CountryInfo> sorted_countries(
-        WebService::Mk8dCountryFlags::kSupportedCountries.begin(),
-        WebService::Mk8dCountryFlags::kSupportedCountries.end());
-    std::sort(sorted_countries.begin(), sorted_countries.end(),
-             [](const auto& l, const auto& r) { return std::string_view{l.name} <
-                                                       std::string_view{r.name}; });
-    for (const auto& country : sorted_countries) {
-        combo->addItem(QStringLiteral("%1 (%2)")
-                          .arg(QString::fromUtf8(country.name), QString::fromLatin1(country.code)),
-                       QString::fromLatin1(country.code));
-    }
-    layout->addWidget(combo);
-
-    auto* button_box =
-        new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    auto* manual_button =
-        button_box->addButton(tr("Open Download Page"), QDialogButtonBox::ActionRole);
-    connect(manual_button, &QPushButton::clicked, &dialog, [] {
-        QDesktopServices::openUrl(
-            QUrl(QString::fromLatin1(WebService::Mk8dCountryFlags::MK8D_REPO_URL)));
-    });
-    connect(button_box, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(button_box, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    layout->addWidget(button_box);
-
-    if (dialog.exec() != QDialog::Accepted) {
-        return;
-    }
-
-    const std::string country_code = combo->currentData().toString().toStdString();
-    RunMk8dCountryFlagInstallWithProgress(program_id, country_code);
 #else
     (void)program_id;
 #endif
