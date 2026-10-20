@@ -238,8 +238,10 @@ bool UnzipToDirectoryPowerShell(std::span<const u8> zip_data, const std::filesys
 #if defined(CITRON_ENABLE_LIBARCHIVE) || defined(_WIN32)
 
 // ---- [Nextendo] Ile d'Animal Crossing: New Horizons : synchro STRICTE -----------------------
-// Une ile par compte cote serveur, sans copie ; une revision ; envoi conditionnel. Meme regle
-// que Ryujinx (NextendoIslandSync) : rien n'est remplace sans le choix du joueur.
+// Regle de Nintendo (prouvee le 20/10 dans ACNH 3.0.3 et olsc 22.5.0), comme Ryujinx : un
+// emplacement par compte, la derniere ile envoyee remplace la precedente ; l'ile de cet emulateur
+// n'est envoyee qu'une fois liee (etat present) ; la restauration n'est proposee que si le joueur
+// l'a debloquee sur le site (chez Nintendo : le support). Aucun signal « en jeu ailleurs ».
 
 constexpr u64 AcnhTitleId = 0x01006F8002326000ULL;
 
@@ -349,23 +351,16 @@ std::string DeviceId() {
     return id;
 }
 
-enum class LaunchAction { Nothing, OfferFirstUpload, OfferDownload, Conflict };
+enum class LaunchAction { Nothing, OfferLink, OfferRestore };
 
-LaunchAction Decide(bool cloud_exists, u64 cloud_rev, bool local_exists,
-                    const std::string& local_hash, const StrictState& st) {
-    if (!cloud_exists) {
-        return local_exists ? LaunchAction::OfferFirstUpload : LaunchAction::Nothing;
+LaunchAction Decide(bool cloud_exists, bool restore_unlocked, bool local_exists, bool linked) {
+    if (cloud_exists && restore_unlocked) {
+        return LaunchAction::OfferRestore;
     }
-    if (!local_exists) {
-        return LaunchAction::OfferDownload;
+    if (local_exists && !linked) {
+        return LaunchAction::OfferLink;
     }
-    if (!st.present) {
-        return LaunchAction::Conflict;
-    }
-    if (st.rev == cloud_rev) {
-        return LaunchAction::Nothing;
-    }
-    return st.hash == local_hash ? LaunchAction::OfferDownload : LaunchAction::Conflict;
+    return LaunchAction::Nothing;
 }
 
 bool ReplaceWithCloud(const FileSys::VirtualDir& save_dir, u64 title_id) {
@@ -387,13 +382,13 @@ bool ReplaceWithCloud(const FileSys::VirtualDir& save_dir, u64 title_id) {
 #endif
     if (ok) {
         SaveState(title_id, rev, Fingerprint(save_dir));
-        LOG_INFO(Frontend, "Nextendo island {:016X}: rev {} downloaded ({} B)", title_id, rev,
+        LOG_INFO(Frontend, "Nextendo island {:016X}: rev {} restored ({} B)", title_id, rev,
                  zip->size());
     }
     return ok;
 }
 
-bool SendStrict(const FileSys::VirtualDir& save_dir, u64 title_id, u64 base_rev) {
+bool SendStrict(const FileSys::VirtualDir& save_dir, u64 title_id) {
 #ifdef CITRON_ENABLE_LIBARCHIVE
     const auto zip = ZipDirectory(save_dir);
 #else
@@ -403,16 +398,13 @@ bool SendStrict(const FileSys::VirtualDir& save_dir, u64 title_id, u64 base_rev)
         return false;
     }
     u64 new_rev = 0;
-    WebService::NextendoApi::SaveMeta cloud;
-    const auto r = WebService::NextendoApi::PushStrictSave(
-        fmt::format("{:016x}", title_id), zip, base_rev, DeviceId(), new_rev, cloud);
+    const auto r = WebService::NextendoApi::PushStrictSave(fmt::format("{:016x}", title_id), zip,
+                                                           DeviceId(), new_rev);
     if (r == WebService::NextendoApi::StrictPush::Sent) {
         SaveState(title_id, new_rev, Fingerprint(save_dir));
         return true;
     }
-    LOG_WARNING(Frontend, "Nextendo island {:016X}: upload {} (cloud rev {})", title_id,
-                r == WebService::NextendoApi::StrictPush::Conflict ? "CONFLICT" : "failed",
-                cloud.rev);
+    LOG_WARNING(Frontend, "Nextendo island {:016X}: upload failed", title_id);
     return false;
 }
 
@@ -420,72 +412,48 @@ void PullStrict(const FileSys::VirtualDir& save_dir, u64 title_id) {
     const std::string tid = fmt::format("{:016x}", title_id);
     const auto meta = WebService::NextendoApi::GetSaveMeta(tid, DeviceId());
     if (!meta.ok) {
-        return; // serveur injoignable : l'envoi conditionnel protegera le cloud
+        return; // serveur injoignable : l'envoi suivra si l'ile est liee
     }
     const QString title = QObject::tr("Your island in the cloud");
-    if (!meta.session_device.empty() && meta.session_device != DeviceId()) {
-        QMessageBox::warning(
-            nullptr, title,
-            QObject::tr("Your island seems to be open on %1. If you play here at the same time, "
-                        "the two games will diverge and one of them will have to be dropped when "
-                        "syncing.")
-                .arg(QString::fromStdString(meta.session_device)));
-    }
     const bool local = HasLocalContent(save_dir);
-    const std::string hash = Fingerprint(save_dir);
     const StrictState st = LoadState(title_id);
-    const LaunchAction action = Decide(meta.exists, meta.rev, local, hash, st);
-    LOG_INFO(Frontend, "Nextendo island {:016X}: cloud rev={} local={} state={} -> {}", title_id,
-             meta.rev, local, st.present ? std::to_string(st.rev) : std::string("none"),
+    const LaunchAction action = Decide(meta.exists, meta.restore_unlocked, local, st.present);
+    LOG_INFO(Frontend, "Nextendo island {:016X}: cloud rev={} restore={} local={} linked={} -> {}",
+             title_id, meta.rev, meta.restore_unlocked, local, st.present,
              static_cast<int>(action));
 
     switch (action) {
-    case LaunchAction::OfferFirstUpload:
-        // Question c : l'ile de cet emulateur se lie au compte SEULEMENT si le joueur le dit.
+    case LaunchAction::OfferRestore:
         if (QMessageBox::question(
                 nullptr, title,
-                QObject::tr("No island is stored in the cloud for your account. Link this "
-                            "emulator's island to your Nextendo account? You will then be able to "
-                            "get it back on Ryujinx, Citron or your Switch.")) == QMessageBox::Yes) {
-            SendStrict(save_dir, title_id, 0);
-        }
-        break;
-    case LaunchAction::OfferDownload:
-        if (QMessageBox::question(
-                nullptr, title,
-                QObject::tr("Your cloud island (saved on %1 from %2) is newer than this emulator's. "
-                            "Download it? This emulator's island will be replaced.")
+                QObject::tr("Restore is allowed for your account. Restore the island saved on %1 "
+                            "from %2? This emulator's island will be replaced.")
                     .arg(QString::fromStdString(meta.updated_at),
                          QString::fromStdString(meta.device))) == QMessageBox::Yes) {
             ReplaceWithCloud(save_dir, title_id);
         }
         break;
-    case LaunchAction::Conflict: {
-        // Question b : deux iles differentes, le joueur choisit ; Annuler ne touche a rien.
-        QMessageBox box(QMessageBox::Question, title,
-                        QObject::tr("Two different islands: the cloud one (saved on %1 from %2) and "
-                                    "this emulator's. Only one island is kept per account: the "
-                                    "other will be lost.")
-                            .arg(QString::fromStdString(meta.updated_at),
-                                 QString::fromStdString(meta.device)));
-        QPushButton* keep_cloud =
-            box.addButton(QObject::tr("Keep the cloud island"), QMessageBox::AcceptRole);
-        QPushButton* keep_local =
-            box.addButton(QObject::tr("Keep this emulator's island"), QMessageBox::DestructiveRole);
-        box.addButton(QMessageBox::Cancel);
-        box.exec();
-        if (box.clickedButton() == keep_cloud) {
-            ReplaceWithCloud(save_dir, title_id);
-        } else if (box.clickedButton() == keep_local) {
-            SendStrict(save_dir, title_id, meta.rev);
+    case LaunchAction::OfferLink: {
+        // Equivalent de l'activation de l'archivage dans le jeu (l'olsc:u de l'emulateur ne la
+        // transmet pas) : rien n'est envoye sans ce oui.
+        const QString text =
+            meta.exists
+                ? QObject::tr("Your account already has an island in the cloud (saved on %1 from "
+                              "%2). Link this emulator's island instead? The island in the cloud "
+                              "will be replaced. To get it back here instead, allow restore from "
+                              "your account page on the website.")
+                      .arg(QString::fromStdString(meta.updated_at),
+                           QString::fromStdString(meta.device))
+                : QObject::tr("Link this emulator's island to your Nextendo account? Like island "
+                              "backup in the game, your account keeps one island: each time you "
+                              "save, this island will replace the one in the cloud.");
+        if (QMessageBox::question(nullptr, title, text) == QMessageBox::Yes) {
+            SendStrict(save_dir, title_id);
         }
         break;
     }
     case LaunchAction::Nothing:
         break;
-    }
-    if (LoadState(title_id).present) {
-        WebService::NextendoApi::AnnounceSaveSession(tid, DeviceId());
     }
 }
 
@@ -576,8 +544,7 @@ void UploadCaptured(u64 title_id, std::vector<u8> zip_bytes) {
     }
 #if defined(CITRON_ENABLE_LIBARCHIVE) || defined(_WIN32)
     if (IsStrict(title_id)) {
-        // Envoi conditionnel sur la revision de la derniere synchro : en cas de conflit (ile
-        // jouee ailleurs entre-temps), rien n'est ecrase et le prochain lancement demande.
+        // Ile liee : le dernier envoi remplace l'ile du compte (regle de Nintendo).
         const StrictState st = LoadState(title_id);
         if (!st.present) {
             return;
@@ -588,17 +555,14 @@ void UploadCaptured(u64 title_id, std::vector<u8> zip_bytes) {
             hash = g_capture_hash;
         }
         u64 new_rev = 0;
-        WebService::NextendoApi::SaveMeta cloud;
-        const auto r = WebService::NextendoApi::PushStrictSave(
-            fmt::format("{:016x}", title_id), zip_bytes, st.rev, DeviceId(), new_rev, cloud);
+        const auto r = WebService::NextendoApi::PushStrictSave(fmt::format("{:016x}", title_id),
+                                                               zip_bytes, DeviceId(), new_rev);
         if (r == WebService::NextendoApi::StrictPush::Sent) {
             SaveState(title_id, new_rev, hash);
             LOG_INFO(Frontend, "Nextendo island {:016X}: rev {} sent ({} B)", title_id, new_rev,
                      zip_bytes.size());
         } else {
-            LOG_WARNING(Frontend, "Nextendo island {:016X}: upload {} (cloud rev {})", title_id,
-                        r == WebService::NextendoApi::StrictPush::Conflict ? "CONFLICT" : "failed",
-                        cloud.rev);
+            LOG_WARNING(Frontend, "Nextendo island {:016X}: upload failed", title_id);
         }
         return;
     }
