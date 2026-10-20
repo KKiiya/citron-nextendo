@@ -20,6 +20,12 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+// The numbers in arm_nce_asm_definitions.h are used by the assembly; they must match libc's.
+static_assert(ReturnToRunCodeByExceptionLevelChangeSignal == SIGUSR2);
+static_assert(BreakFromRunCodeSignal == SIGURG);
+static_assert(GuestAccessFaultSignal == SIGSEGV);
+static_assert(GuestAlignmentFaultSignal == SIGBUS);
+
 namespace Core {
 
 namespace {
