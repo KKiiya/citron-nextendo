@@ -5,13 +5,16 @@
 
 #define __ASSEMBLY__
 
-#include <asm-generic/signal.h>
 #include <asm-generic/unistd.h>
 
-#define ReturnToRunCodeByExceptionLevelChangeSignal SIGUSR2
-#define BreakFromRunCodeSignal SIGURG
-#define GuestAccessFaultSignal SIGSEGV
-#define GuestAlignmentFaultSignal SIGBUS
+// <asm-generic/signal.h> is deliberately not included: it typedefs sigset_t unconditionally, so it
+// fails to compile ("typedef redefinition") in any translation unit where glibc's sigset_t was
+// already pulled in by an earlier include (k_process.cpp). These are the generic Linux signal
+// numbers; arm_nce.cpp checks them against <signal.h> at compile time.
+#define ReturnToRunCodeByExceptionLevelChangeSignal 12 /* SIGUSR2 */
+#define BreakFromRunCodeSignal 23                      /* SIGURG */
+#define GuestAccessFaultSignal 11                      /* SIGSEGV */
+#define GuestAlignmentFaultSignal 7                    /* SIGBUS */
 
 #define GuestContextSp 0xF8
 #define GuestContextHostContext 0x320
