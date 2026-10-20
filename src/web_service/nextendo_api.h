@@ -8,6 +8,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 #include "common/common_types.h"
 
@@ -185,6 +186,20 @@ std::optional<std::vector<u8>> PullSave(const std::string& title_id_hex);
 // Returns an error message fit to show the user, or empty on success.
 std::string PushSave(const std::string& title_id_hex, std::span<const u8> data);
 
+// [Nextendo] Island of Animal Crossing: New Horizons, backed up by the game through olsc:u
+// (Service::OLSC::NextendoIsland). Raw request on /api/save/<title><suffix> with the account token,
+// on its own connection (an 11 MB island must not hold the shared client nor its 15 s timeout).
+// status = 0 when the server could not be reached; save_rev = the X-Save-Rev header.
+struct IslandResponse {
+    int status = 0;
+    std::string body;
+    std::string save_rev;
+};
+IslandResponse IslandRequest(const std::string& method, const std::string& title_id_hex,
+                             const std::string& suffix, const std::string& body,
+                             const std::vector<std::pair<std::string, std::string>>& headers,
+                             int timeout_seconds);
+
 struct Profile {
     bool ok = false;
     std::string error;
@@ -208,6 +223,11 @@ Profile GetProfile();
 // token with short timeouts, and never signs the session out. nullopt when the request failed;
 // an empty string when the account has no country.
 std::optional<std::string> GetAccountCountry();
+
+// The account's NSA on a real Switch (/api/me, "nsa": its baasUserID, 16 hex digits), the id its
+// Switch and emulator friends know it by, as text. nullopt when the request failed or the site does not
+// serve it yet (older nextendo-account).
+std::optional<std::string> GetAccountNsa();
 
 // Uploads a new profile picture (base64 JPEG), preserving the rest of the profile blob (the
 // server replaces it wholesale, so this fetches the current profile first and resends it with

@@ -512,6 +512,43 @@ OnlineStatus GetOnlineStatus() {
 
 
 
+IslandResponse IslandRequest(const std::string& method, const std::string& title_id_hex,
+                             const std::string& suffix, const std::string& body,
+                             const std::vector<std::pair<std::string, std::string>>& headers,
+                             int timeout_seconds) {
+    IslandResponse out;
+    const std::string token = Common::NextendoAccount::GetToken();
+    if (token.empty()) {
+        return out;
+    }
+    httplib::Client client{BaseUrl()};
+    client.set_connection_timeout(TimeoutSeconds);
+    client.set_read_timeout(timeout_seconds);
+    client.set_write_timeout(timeout_seconds);
+    client.set_follow_location(true);
+    ApplyCaCertPath(client);
+
+    httplib::Headers all = BaseHeaders();
+    all.emplace("Authorization", "Bearer " + token);
+    for (const auto& [key, value] : headers) {
+        all.emplace(key, value);
+    }
+    const std::string path = "/api/save/" + title_id_hex + suffix;
+    auto result = method == "PUT" ? client.Put(path, all, body, "application/octet-stream")
+                                  : client.Get(path, all);
+    if (ClearSessionIfRejected(result) || !result) {
+        if (!result) {
+            LOG_WARNING(WebService, "Nextendo island {} {}: {}", method, path,
+                        httplib::to_string(result.error()));
+        }
+        return out;
+    }
+    out.status = result->status;
+    out.body = std::move(result->body);
+    out.save_rev = result->get_header_value("X-Save-Rev");
+    return out;
+}
+
 std::vector<u8> DownloadBcatSeed(const std::string& title_id_hex) {
     const std::string token = Common::NextendoAccount::GetToken();
     const auto result = Send("GET", "/api/bcat/" + title_id_hex, {}, token);
@@ -692,6 +729,38 @@ std::optional<std::string> GetAccountCountry() {
             return std::string{};
         }
         return country->get<std::string>();
+    } catch (const nlohmann::json::exception&) {
+        return std::nullopt;
+    }
+}
+
+std::optional<std::string> GetAccountNsa() {
+    const std::string token = Common::NextendoAccount::GetToken();
+    if (token.empty()) {
+        return std::nullopt;
+    }
+
+    httplib::Client client{BaseUrl()};
+    client.set_connection_timeout(CountryTimeoutSeconds);
+    client.set_read_timeout(CountryTimeoutSeconds);
+    client.set_write_timeout(CountryTimeoutSeconds);
+    ApplyCaCertPath(client);
+
+    httplib::Headers headers = BaseHeaders();
+    headers.emplace("Authorization", "Bearer " + token);
+
+    const auto result = client.Get("/api/me", headers);
+    if (!result || result->status != 200) {
+        return std::nullopt;
+    }
+
+    try {
+        const auto json = nlohmann::json::parse(result->body);
+        const auto nsa = json.find("nsa");
+        if (nsa == json.end() || !nsa->is_string()) {
+            return std::nullopt;
+        }
+        return nsa->get<std::string>();
     } catch (const nlohmann::json::exception&) {
         return std::nullopt;
     }

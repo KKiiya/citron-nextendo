@@ -12,6 +12,7 @@
 #include "core/core.h"
 #include "core/hle/kernel/k_event.h"
 #include "core/hle/service/acc/errors.h"
+#include "core/hle/service/acc/nextendo_baas_nsa.h"
 #include "common/nextendo_account.h"
 #include "common/nextendo_friends.h"
 #include "common/nextendo_nat.h"
@@ -188,8 +189,10 @@ bool IsUno(Core::System& system) {
 
 // List a friend under the id their own client announces: account id on hardware, pid on emulators.
 // `prefer_nsa` is the Splatoon 3 override: NPLN names friends by NSA regardless of platform.
+// In a title where every client announces the baasUserID (Animal Crossing: New Horizons, see
+// nextendo_baas_nsa.h), every friend is listed by their "nsa" as well.
 u64 FriendAdvertisedId(const Common::NextendoFriends::Entry& entry, bool prefer_nsa) {
-    if (prefer_nsa && entry.account_id != 0) {
+    if ((prefer_nsa || Service::Account::IsBaasNsaModeActive()) && entry.account_id != 0) {
         return entry.account_id;
     }
     return entry.is_console && entry.account_id != 0 ? entry.account_id : entry.pid;
