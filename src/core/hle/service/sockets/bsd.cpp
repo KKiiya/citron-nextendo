@@ -2072,6 +2072,21 @@ Errno BSD::GetSockOptImpl(s32 fd, u32 level, OptName optname, std::vector<u8>& o
         return write_bool_opt(socket->GetKeepAlive());
     case OptName::BROADCAST:
         return write_bool_opt(socket->GetBroadcast());
+    case OptName::SNDBUF:
+    case OptName::RCVBUF: {
+        // A title that sizes a UDP socket reads SO_SNDBUF/SO_RCVBUF back and abandons the
+        // socket on INVAL (UNO's Storm networking does this for every datagram socket).
+        auto [size, getsockopt_err] =
+            optname == OptName::SNDBUF ? socket->GetSndBuf() : socket->GetRcvBuf();
+        if (getsockopt_err == Network::Errno::SUCCESS) {
+            ASSERT_OR_EXECUTE_MSG(
+                optval.size() >= sizeof(u32), { return Errno::INVAL; },
+                "Incorrect getsockopt option size");
+            optval.resize(sizeof(u32));
+            PutValue(optval, size);
+        }
+        return Translate(getsockopt_err);
+    }
     default:
         LOG_WARNING(Service, "(STUBBED) Unimplemented optname={} (0x{:x}), returning INVAL",
                     static_cast<u32>(optname), static_cast<u32>(optname));
