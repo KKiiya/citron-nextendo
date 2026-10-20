@@ -697,6 +697,38 @@ std::optional<std::string> GetAccountCountry() {
     }
 }
 
+std::optional<std::string> GetAccountNsa() {
+    const std::string token = Common::NextendoAccount::GetToken();
+    if (token.empty()) {
+        return std::nullopt;
+    }
+
+    httplib::Client client{BaseUrl()};
+    client.set_connection_timeout(CountryTimeoutSeconds);
+    client.set_read_timeout(CountryTimeoutSeconds);
+    client.set_write_timeout(CountryTimeoutSeconds);
+    ApplyCaCertPath(client);
+
+    httplib::Headers headers = BaseHeaders();
+    headers.emplace("Authorization", "Bearer " + token);
+
+    const auto result = client.Get("/api/me", headers);
+    if (!result || result->status != 200) {
+        return std::nullopt;
+    }
+
+    try {
+        const auto json = nlohmann::json::parse(result->body);
+        const auto nsa = json.find("nsa");
+        if (nsa == json.end() || !nsa->is_string()) {
+            return std::nullopt;
+        }
+        return nsa->get<std::string>();
+    } catch (const nlohmann::json::exception&) {
+        return std::nullopt;
+    }
+}
+
 std::string PushProfilePicture(const std::string& image_base64) {
     const std::string token = Common::NextendoAccount::GetToken();
     if (token.empty()) {

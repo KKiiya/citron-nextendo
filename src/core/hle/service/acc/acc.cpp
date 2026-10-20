@@ -36,6 +36,7 @@
 #include "core/file_sys/patch_manager.h"
 #include "core/hle/service/acc/acc.h"
 #include "core/hle/service/acc/nextendo_account_country.h"
+#include "core/hle/service/acc/nextendo_baas_nsa.h"
 #include "core/hle/service/acc/nextendo_cached_account_info.h"
 #include "core/hle/service/acc/acc_aa.h"
 #include "core/hle/service/acc/acc_e.h"
@@ -1324,8 +1325,23 @@ private:
         rb.Push(ResultSuccess);
     }
 
+    // [Nextendo] The NSA handed to the running title: in Animal Crossing: New Horizons, the
+    // linked account's baasUserID (that of a real Switch, see nextendo_baas_nsa.h) so a Switch and
+    // the emulator see each other as friends; the pid elsewhere and when it is unknown.
+    u64 AnnouncedAccountId() const {
+        const u64 account_id = GetEffectivePid();
+        const u64 program_id = system.GetApplicationProcessProgramID();
+        if (!IsLinkedAccountPid(account_id) || !TitleUsesBaasNsa(program_id)) {
+            SetBaasNsaMode(false);
+            return account_id;
+        }
+        const u64 announced = ChooseAnnouncedNsa(program_id, account_id, GetLinkedAccountBaasNsa());
+        SetBaasNsaMode(announced != account_id);
+        return announced;
+    }
+
     void GetAccountId(HLERequestContext& ctx) {
-        u64 account_id = GetEffectivePid();
+        u64 account_id = AnnouncedAccountId();
         // The PID is accepted as a bare identity by the online service, so never log its value.
         LOG_DEBUG(Service_ACC, "[Nextendo] Returning the linked account's Network ID");
 
@@ -1409,7 +1425,7 @@ private:
 
         IPC::ResponseBuilder rb{ctx, 4};
         rb.Push(ResultSuccess);
-        rb.PushRaw<u64>(account_id);
+        rb.PushRaw<u64>(AnnouncedAccountId());
     }
 
     void StoreOpenContext(HLERequestContext& ctx) {
