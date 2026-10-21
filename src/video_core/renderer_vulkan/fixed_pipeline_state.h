@@ -22,6 +22,7 @@ struct DynamicFeatures {
     bool has_extended_dynamic_state_3_blend;
     bool has_extended_dynamic_state_3_enables;
     bool has_dynamic_vertex_input;
+    bool needs_vertex_stride_alignment;
     bool has_transform_feedback;
     bool has_mixed_attachment_samples;
 };

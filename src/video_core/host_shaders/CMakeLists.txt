@@ -70,6 +70,7 @@ set(SHADER_FILES
     vulkan_present_scalefx_fp32.frag
     vulkan_crt_easymode.frag
     vulkan_quad_indexed.comp
+    vulkan_change_buffer_stride.comp
     vulkan_taa.frag
     vulkan_taa.vert
     vulkan_turbo_mode.comp

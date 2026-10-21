@@ -134,6 +134,13 @@ void FixedPipelineState::Refresh(Tegra::Engines::Maxwell3D& maxwell3d, DynamicFe
         std::ranges::transform(regs.vertex_streams, vertex_strides.begin(), [](const auto& array) {
             return static_cast<u16>(array.stride.Value());
         });
+        if (features.needs_vertex_stride_alignment) {
+            for (auto& stride : vertex_strides) {
+                if (stride != 0) {
+                    stride = static_cast<u16>((stride + 3U) & ~3U);
+                }
+            }
+        }
     }
     if (!extended_dynamic_state_2_extra) {
         dynamic_state.Refresh2(regs, topology_, extended_dynamic_state_2);

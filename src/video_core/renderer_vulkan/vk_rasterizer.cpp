@@ -1903,12 +1903,15 @@ void RasterizerVulkan::UpdateVertexInput(Tegra::Engines::Maxwell3D::Regs& regs) 
 
         const u32 binding{static_cast<u32>(index)};
         const auto& input_binding{regs.vertex_streams[binding]};
+        const u32 stride = input_binding.stride;
+        const u32 vertex_stride =
+            device.GetVendorID() == 0x1002 && stride != 0 ? (stride + 3U) & ~3U : stride;
         const bool is_instanced{regs.vertex_stream_instances.IsInstancingEnabled(binding)};
         bindings.push_back({
             .sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT,
             .pNext = nullptr,
             .binding = binding,
-            .stride = input_binding.stride,
+            .stride = vertex_stride,
             .inputRate = is_instanced ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX,
             .divisor = is_instanced ? input_binding.frequency : 1,
         });

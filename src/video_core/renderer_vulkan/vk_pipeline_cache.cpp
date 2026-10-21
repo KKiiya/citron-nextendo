@@ -457,6 +457,7 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
         .has_extended_dynamic_state_3_enables =
             allow_eds3 && device.IsExtExtendedDynamicState3EnablesSupported(),
         .has_dynamic_vertex_input = allow_eds3 && device.IsExtVertexInputDynamicStateSupported(),
+        .needs_vertex_stride_alignment = device.GetVendorID() == 0x1002,
         .has_transform_feedback = device.IsExtTransformFeedbackSupported(),
         .has_mixed_attachment_samples = device.IsMixedAttachmentSamplesSupported(),
     };

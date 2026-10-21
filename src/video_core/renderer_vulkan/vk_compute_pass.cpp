@@ -20,6 +20,7 @@
 #include "video_core/host_shaders/queries_prefix_scan_sum_nosubgroups_comp_spv.h"
 #include "video_core/host_shaders/resolve_conditional_render_comp_spv.h"
 #include "video_core/host_shaders/vulkan_quad_indexed_comp_spv.h"
+#include "video_core/host_shaders/vulkan_change_buffer_stride_comp_spv.h"
 #include "video_core/host_shaders/vulkan_uint8_comp_spv.h"
 #include "video_core/renderer_vulkan/vk_compute_pass.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
@@ -403,6 +404,52 @@ std::pair<VkBuffer, VkDeviceSize> QuadIndexedPass::Assemble(
                                VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, WRITE_BARRIER);
     });
     return {staging.buffer, staging.offset};
+}
+
+VertexStridePass::VertexStridePass(const Device& device_, Scheduler& scheduler_,
+                                   DescriptorPool& descriptor_pool_,
+                                   ComputePassDescriptorQueue& compute_pass_descriptor_queue_)
+    : ComputePass(device_, descriptor_pool_, INPUT_OUTPUT_DESCRIPTOR_SET_BINDINGS,
+                  INPUT_OUTPUT_DESCRIPTOR_UPDATE_TEMPLATE, INPUT_OUTPUT_BANK_INFO,
+                  COMPUTE_PUSH_CONSTANT_RANGE<sizeof(u32) * 4>,
+                  VULKAN_CHANGE_BUFFER_STRIDE_COMP_SPV),
+      scheduler{scheduler_}, compute_pass_descriptor_queue{compute_pass_descriptor_queue_} {}
+
+void VertexStridePass::Run(VkBuffer source, VkDeviceSize source_range, VkBuffer destination,
+                           VkDeviceSize destination_range, u32 source_offset, u32 stride,
+                           u32 aligned_stride, u32 vertex_count) {
+    compute_pass_descriptor_queue.Acquire();
+    compute_pass_descriptor_queue.AddBuffer(source, 0, source_range);
+    compute_pass_descriptor_queue.AddBuffer(destination, 0, destination_range);
+    const void* const descriptor_data{compute_pass_descriptor_queue.UpdateData()};
+    scheduler.RequestOutsideRenderPassOperationContext();
+    scheduler.Record([this, descriptor_data, source_offset, stride, aligned_stride,
+                      vertex_count](vk::CommandBuffer cmdbuf) {
+        static constexpr VkMemoryBarrier read_barrier{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+            .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+        };
+        static constexpr VkMemoryBarrier write_barrier{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+            .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
+        };
+        const std::array<u32, 4> params{stride, aligned_stride, vertex_count, source_offset};
+        const VkDescriptorSet set = descriptor_allocator.Commit();
+        device.GetLogical().UpdateDescriptorSet(set, *descriptor_template, descriptor_data);
+        cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, read_barrier);
+        cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline);
+        cmdbuf.BindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, *layout, 0, set, {});
+        cmdbuf.PushConstants(*layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(params), params.data());
+        const u32 output_words = (vertex_count * aligned_stride + 3) / 4;
+        cmdbuf.Dispatch(Common::DivCeil(output_words, 128U), 1, 1);
+        cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                               VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, write_barrier);
+    });
 }
 
 ConditionalRenderingResolvePass::ConditionalRenderingResolvePass(
