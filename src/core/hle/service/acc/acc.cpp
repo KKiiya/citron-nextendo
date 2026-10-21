@@ -218,8 +218,38 @@ std::string SignRs256(std::string_view signing_input) {
     return signature;
 }
 
-std::string GetInstalledTitleVersion(Core::System& system) {
+constexpr bool IsClassicsApplication(u64 program_id) {
+    switch (program_id) {
+    case 0x0100D870045B6000ULL: // NES
+    case 0x01008D300C50C000ULL: // SNES
+    case 0x0100C62011050000ULL: // Game Boy
+    case 0x010012F017576000ULL: // Game Boy Advance
+    case 0x0100C9A00ECE6000ULL: // Nintendo 64
+    case 0x0100B3C014BDA000ULL: // Mega Drive / Genesis
+        return true;
+    default:
+        return false;
+    }
+}
+
+u64 GetIdTokenProgramId(Core::System& system) {
     const u64 program_id = system.GetApplicationProcessProgramID();
+    if (program_id != 0 || !system.IsPoweredOn()) {
+        return program_id;
+    }
+    // Use loaded application metadata only when a Classics process is not yet
+    // available through the application-process slot. Never infer identity from
+    // the account, network address or the previously running catalogue.
+    u64 loaded_id{};
+    if (system.GetAppLoader().ReadProgramId(loaded_id) == Loader::ResultStatus::Success &&
+        IsClassicsApplication(loaded_id)) {
+        return loaded_id;
+    }
+    return 0;
+}
+
+std::string GetInstalledTitleVersion(Core::System& system) {
+    const u64 program_id = GetIdTokenProgramId(system);
     if (program_id == 0) {
         return {};
     }
@@ -284,9 +314,11 @@ std::string BuildIdToken(const std::string& installed_version, u64 program_id) {
     if (!installed_version.empty()) {
         tv_claim = fmt::format(R"("tv":"{}",)", installed_version);
     }
-    // Scarlet shares Violet's NPLN tenant, and Monster Hunter Rise JP/HK shares the US/EU one, but
-    // each needs its own app_id; every other title's token keeps the existing claim shape.
-    if (program_id == 0x0100A3D008C5C000ULL || program_id == 0x0100559011740000ULL) {
+    // Shared Classics endpoints need an explicit catalogue even when control
+    // metadata supplies no display version. The server still authenticates the
+    // enclosed Nextendo proof; this application ID is a routing scope only.
+    if (IsClassicsApplication(program_id) || program_id == 0x0100A3D008C5C000ULL ||
+        program_id == 0x0100559011740000ULL) {
         tv_claim += fmt::format(R"("app_id":"{:016X}",)", program_id);
     }
 
@@ -317,11 +349,16 @@ std::vector<u8> GetIdTokenBytes(Core::System& system) {
     const u64 generation = Common::NextendoAccount::GetGeneration();
     const std::string installed_version = GetInstalledTitleVersion(system);
     const u64 test_pid = ConfiguredTestPid();
-    const u64 program_id = system.GetApplicationProcessProgramID();
+    const u64 program_id = GetIdTokenProgramId(system);
     const auto now = std::chrono::steady_clock::now();
     if (cached.empty() || now >= expiry || generation != cached_generation ||
         installed_version != cached_version || test_pid != cached_test_pid ||
         program_id != cached_program_id) {
+        if (IsClassicsApplication(program_id)) {
+            LOG_INFO(Service_ACC,
+                     "[Nextendo] Classics authentication scope: title={:016X} version_present={}",
+                     program_id, !installed_version.empty());
+        }
         const std::string token = BuildIdToken(installed_version, program_id);
         cached.assign(token.begin(), token.end());
         expiry = now + std::chrono::hours{2};
@@ -1298,7 +1335,7 @@ private:
         // Keeps outdated clients off the servers entirely -- reduces load from clients that
         // can't speak the wire format the server expects, and keeps the playerbase from
         // fragmenting across versions.
-        const u64 program_id = system.GetApplicationProcessProgramID();
+        const u64 program_id = GetIdTokenProgramId(system);
         if (Nextendo::CompatibleTitles::Table().contains(program_id)) {
             const std::string installed_version = GetInstalledTitleVersion(system);
             if (!Nextendo::CompatibleTitles::IsVersionOk(program_id, installed_version)) {
