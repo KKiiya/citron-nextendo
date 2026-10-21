@@ -75,6 +75,8 @@ inline const std::unordered_map<u64, std::string>& Table() {
         {0x0100b0c013912000, "2026.19.0"},   // Among Us
         {0x0100b6e012ebe000, "1.1.17"},      // UNO
         {0x0100fcf002a58000, "1.13.13.765"}, // Ultimate Chicken Horse
+        {0x01006bd001e06000, "1.0.17"},      // Minecraft: Nintendo Switch Edition
+        {0x0100abd01785c000, "1.0.3"},       // Portal 2
     };
     return table;
 }
