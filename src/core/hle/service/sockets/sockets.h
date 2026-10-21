@@ -30,10 +30,12 @@ enum class Errno : u32 {
     ADDRINUSE = 98,
     CONNABORTED = 103,
     CONNRESET = 104,
+    ISCONN = 106,
     NOTCONN = 107,
     TIMEDOUT = 110,
     CONNREFUSED = 111,
     DESTADDRREQ = 89,
+    ALREADY = 114,
     INPROGRESS = 115,
 };
 

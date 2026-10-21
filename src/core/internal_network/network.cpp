@@ -180,6 +180,13 @@ Errno TranslateNativeError(int e, CallType call_type = CallType::Other) {
         return Errno::TIMEDOUT;
     case WSAEINPROGRESS:
         return Errno::INPROGRESS;
+    case WSAEALREADY:
+        return Errno::ALREADY;
+    case WSAEISCONN:
+        // [Nextendo] Games that poll a non-blocking connect() by calling connect() again (e.g.
+        // Playtest Program's game-server link) wait for EISCONN. Unmapped, this became EINVAL
+        // and the guest never saw the connection complete, so it never sent its TLS ClientHello.
+        return Errno::ISCONN;
     case WSAENOPROTOOPT:
         return Errno::INVAL;
     default:
@@ -327,6 +334,10 @@ Errno TranslateNativeError(int e, CallType call_type = CallType::Other) {
         return Errno::TIMEDOUT;
     case EINPROGRESS:
         return Errno::INPROGRESS;
+    case EALREADY:
+        return Errno::ALREADY;
+    case EISCONN:
+        return Errno::ISCONN;
     case ENOPROTOOPT:
         return Errno::INVAL;
     default:
@@ -344,7 +355,8 @@ Errno GetAndLogLastError(CallType call_type = CallType::Other) {
     int e = errno;
 #endif
     const Errno err = TranslateNativeError(e, call_type);
-    if (err == Errno::AGAIN || err == Errno::TIMEDOUT || err == Errno::INPROGRESS) {
+    if (err == Errno::AGAIN || err == Errno::TIMEDOUT || err == Errno::INPROGRESS ||
+        err == Errno::ALREADY || err == Errno::ISCONN) {
         // These happen during normal operation, so only log them at debug level.
         LOG_DEBUG(Network, "Socket operation error: {}", Common::NativeErrorToString(e));
         return err;

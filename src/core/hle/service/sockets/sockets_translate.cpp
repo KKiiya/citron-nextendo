@@ -42,6 +42,10 @@ Errno Translate(Network::Errno value) {
         return Errno::DESTADDRREQ;
     case Network::Errno::INPROGRESS:
         return Errno::INPROGRESS;
+    case Network::Errno::ALREADY:
+        return Errno::ALREADY;
+    case Network::Errno::ISCONN:
+        return Errno::ISCONN;
     case Network::Errno::OTHER:
         // Map OTHER to INVAL as a reasonable default for unknown errors
         return Errno::INVAL;
