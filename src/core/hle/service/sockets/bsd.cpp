@@ -1892,10 +1892,13 @@ Errno BSD::ConnectImpl(s32 fd, std::span<const u8> addr) {
              Network::IPv4AddressToRedactedString(addr_in.ip), translated_addr.portno);
 
     const auto result = Translate(file_descriptors[fd]->socket->Connect(translated_addr));
-    if (result == Errno::SUCCESS || result == Errno::INPROGRESS) {
+    if (result == Errno::SUCCESS || result == Errno::INPROGRESS || result == Errno::ISCONN) {
         file_descriptors[fd]->connected = true;
     }
-    if (result != Errno::SUCCESS) {
+    if (result == Errno::ISCONN) {
+        // A guest polling its non-blocking connect() is told the socket is already connected.
+        LOG_DEBUG(Service, "Connect fd={} already connected", fd);
+    } else if (result != Errno::SUCCESS) {
         LOG_ERROR(Service, "Connect fd={} failed with errno={}", fd, static_cast<int>(result));
     } else {
         LOG_INFO(Service, "Connect fd={} succeeded", fd);
