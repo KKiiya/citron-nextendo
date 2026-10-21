@@ -583,7 +583,8 @@ void BufferCacheRuntime::BindVertexBuffers(VideoCommon::HostBindings<Buffer>& bi
         const u64 aligned_stride = (stride + 3U) & ~u64{3};
         const u64 vertex_count = stride == 0 ? 0 : bindings.sizes[index] / stride;
         const u64 aligned_size = vertex_count * aligned_stride;
-        if (vertex_stride_pass && stride != 0 && (stride & 3U) != 0 && vertex_count != 0 &&
+        if (vertex_stride_pass && handle != VK_NULL_HANDLE && stride != 0 && (stride & 3U) != 0 &&
+            vertex_count != 0 &&
             bindings.offsets[index] <= std::numeric_limits<u32>::max() &&
             bindings.buffers[index]->SizeBytes() <=
                 device.GetMaxStorageBufferRange() &&
