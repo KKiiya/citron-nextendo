@@ -13,6 +13,8 @@ constexpr u64 DragonBallFighterZ = 0x0100a250097f0000;
 constexpr u64 Diablo3 = 0x01001b300b9be000;
 constexpr u64 AmongUs = 0x0100b0c013912000;
 constexpr u64 Uno = 0x0100b6e012ebe000;
+constexpr u64 Minecraft = 0x01006bd001e06000;
+constexpr u64 Portal2 = 0x0100abd01785c000;
 constexpr u64 UltimateChickenHorse = 0x0100fcf002a58000;
 constexpr u64 Nes = 0x0100d870045b6000;
 constexpr u64 Snes = 0x01008d300c50c000;
@@ -142,6 +144,22 @@ TEST_CASE("Nextendo::CompatibleTitles UNO needs exactly 1.1.17", "[common][nexte
     REQUIRE_FALSE(IsVersionOk(Uno, "1.1.16"));
     REQUIRE_FALSE(IsVersionOk(Uno, "1.1.18"));
     REQUIRE_FALSE(IsVersionOk(Uno, "1.2.0"));
+}
+
+TEST_CASE("Nextendo::CompatibleTitles Minecraft needs exactly 1.0.17", "[common][nextendo]") {
+    using Nextendo::CompatibleTitles::IsVersionOk;
+    REQUIRE(Nextendo::CompatibleTitles::Table().at(Minecraft) == "1.0.17");
+    REQUIRE(IsVersionOk(Minecraft, "1.0.17"));
+    REQUIRE_FALSE(IsVersionOk(Minecraft, "1.0.16"));
+    REQUIRE_FALSE(IsVersionOk(Minecraft, "1.0.0"));
+}
+
+TEST_CASE("Nextendo::CompatibleTitles Portal 2 needs exactly 1.0.3", "[common][nextendo]") {
+    using Nextendo::CompatibleTitles::IsVersionOk;
+    REQUIRE(Nextendo::CompatibleTitles::Table().at(Portal2) == "1.0.3");
+    REQUIRE(IsVersionOk(Portal2, "1.0.3"));
+    REQUIRE_FALSE(IsVersionOk(Portal2, "1.0.0"));
+    REQUIRE_FALSE(IsVersionOk(Portal2, "1.0.2"));
 }
 
 TEST_CASE("Nextendo::CompatibleTitles Ultimate Chicken Horse needs exactly 1.13.13.765",
