@@ -1652,11 +1652,12 @@ void MacroEngine::Execute(Engines::Maxwell3D& maxwell3d, u32 method, std::span<c
         }
         auto& ci = macro_cache[method];
         if (mid_method) {
+            // Copy the tail first: inserting below can rehash the map and move the source vector.
             const auto& macro_cached = uploaded_macro_code[mid_method.value()];
             const auto rebased_method = method - mid_method.value();
+            std::vector<u32> rebased(macro_cached.begin() + rebased_method, macro_cached.end());
             auto& code = uploaded_macro_code[method];
-            code.resize(macro_cached.size() - rebased_method);
-            std::memcpy(code.data(), macro_cached.data() + rebased_method, code.size() * sizeof(u32));
+            code = std::move(rebased);
             ci.hash = Common::HashValue(code);
             ci.program = Compile(maxwell3d, code);
         } else {
@@ -1670,7 +1671,7 @@ void MacroEngine::Execute(Engines::Maxwell3D& maxwell3d, u32 method, std::span<c
         }
         execute_variant(ci.program);
         if (Settings::values.dump_macros) {
-            Dump(ci.hash, macro_code->second, !std::holds_alternative<std::monostate>(ci.program));
+            Dump(ci.hash, uploaded_macro_code[method], !std::holds_alternative<std::monostate>(ci.program));
         }
     }
 }
