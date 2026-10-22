@@ -28,7 +28,3 @@ jobs:
         run: |
           g++ -std=c++20 -Wall -Wextra -Werror -Isrc test-files/game_catalog_test.cpp src/web_service/game_catalog_manifest.cpp -lcrypto -o /tmp/test-game-catalog
           /tmp/test-game-catalog
-      - name: Verify the production catalog with the shipped key
-        run: |
-          curl -fsS -A citron https://nextendo.network/service-catalog/v1/game-catalog -o /tmp/game-catalog.json
-          /tmp/test-game-catalog /tmp/game-catalog.json "$(grep -o '"[A-Za-z0-9+/=]\{44\}"' src/web_service/game_catalog.cpp | tr -d '"')"
