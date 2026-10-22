@@ -1,0 +1,30 @@
+name: Test signed game catalog
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/test-game-catalog.yml'
+      - 'src/common/nextendo_compatible_titles.h'
+      - 'src/web_service/game_catalog*'
+      - 'test-files/game_catalog*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev nlohmann-json3-dev
+      - name: Verify signatures, policies and fallback
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror -Isrc test-files/game_catalog_test.cpp src/web_service/game_catalog_manifest.cpp -lcrypto -o /tmp/test-game-catalog
+          /tmp/test-game-catalog

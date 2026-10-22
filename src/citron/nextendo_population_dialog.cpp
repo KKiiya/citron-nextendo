@@ -119,6 +119,9 @@ NextendoPopulationDialog::NextendoPopulationDialog(QWidget* parent) : QDialog(pa
         }
     });
 
+    // Counts are only polled while the user has a Nextendo title installed; this dialog shows the
+    // main titles either way, so ask once now.
+    Nextendo::OnlineCounts::RefreshNow();
     RefreshChart(0);
 }
 
