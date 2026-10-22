@@ -85,6 +85,21 @@ private:
     ComputePassDescriptorQueue& compute_pass_descriptor_queue;
 };
 
+class VertexStridePass final : public ComputePass {
+public:
+    explicit VertexStridePass(const Device& device_, Scheduler& scheduler_,
+                              DescriptorPool& descriptor_pool_,
+                              ComputePassDescriptorQueue& compute_pass_descriptor_queue_);
+
+    void Run(VkBuffer source, VkDeviceSize source_range, VkBuffer destination,
+             VkDeviceSize destination_range, u32 source_offset, u32 stride, u32 aligned_stride,
+             u32 vertex_count);
+
+private:
+    Scheduler& scheduler;
+    ComputePassDescriptorQueue& compute_pass_descriptor_queue;
+};
+
 class ConditionalRenderingResolvePass final : public ComputePass {
 public:
     explicit ConditionalRenderingResolvePass(

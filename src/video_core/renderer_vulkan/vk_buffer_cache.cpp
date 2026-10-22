@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -341,6 +342,10 @@ BufferCacheRuntime::BufferCacheRuntime(const Device& device_, MemoryAllocator& m
       staging_pool{staging_pool_}, guest_descriptor_queue{guest_descriptor_queue_},
       quad_index_pass(device, scheduler, descriptor_pool, staging_pool,
                       compute_pass_descriptor_queue) {
+    if (device.GetVendorID() == 0x1002) {
+        vertex_stride_pass = std::make_unique<VertexStridePass>(
+            device, scheduler, descriptor_pool, compute_pass_descriptor_queue);
+    }
     if (device.GetDriverID() != VK_DRIVER_ID_QUALCOMM_PROPRIETARY) {
         // TODO: FixMe: Uint8Pass compute shader does not build on some Qualcomm drivers.
         uint8_pass = std::make_unique<Uint8Pass>(device, scheduler, descriptor_pool, staging_pool,
@@ -574,6 +579,43 @@ void BufferCacheRuntime::BindVertexBuffers(VideoCommon::HostBindings<Buffer>& bi
     boost::container::small_vector<VkBuffer, 32> buffer_handles;
     for (u32 index = 0; index < bindings.buffers.size(); ++index) {
         auto handle = bindings.buffers[index]->Handle();
+        const u64 stride = bindings.strides[index];
+        const u64 aligned_stride = (stride + 3U) & ~u64{3};
+        const u64 vertex_count = stride == 0 ? 0 : bindings.sizes[index] / stride;
+        const u64 aligned_size = vertex_count * aligned_stride;
+        if (vertex_stride_pass && handle != VK_NULL_HANDLE && stride != 0 && (stride & 3U) != 0 &&
+            vertex_count != 0 &&
+            bindings.offsets[index] <= std::numeric_limits<u32>::max() &&
+            bindings.buffers[index]->SizeBytes() <=
+                device.GetMaxStorageBufferRange() &&
+            aligned_size <= device.GetMaxStorageBufferRange()) {
+            const u32 binding_index = bindings.min_index + index;
+            auto& aligned = aligned_vertex_buffers[binding_index];
+            if (aligned.capacity < aligned_size) {
+                scheduler.Finish();
+                const VkBufferCreateInfo buffer_ci = {
+                    .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                    .pNext = nullptr,
+                    .flags = 0,
+                    .size = aligned_size,
+                    .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                    .queueFamilyIndexCount = 0,
+                    .pQueueFamilyIndices = nullptr,
+                };
+                aligned.buffer = memory_allocator.CreateBuffer(buffer_ci, MemoryUsage::DeviceLocal);
+                aligned.capacity = aligned_size;
+            }
+            vertex_stride_pass->Run(
+                handle, bindings.buffers[index]->SizeBytes(), *aligned.buffer, aligned_size,
+                static_cast<u32>(bindings.offsets[index]), static_cast<u32>(stride),
+                static_cast<u32>(aligned_stride), static_cast<u32>(vertex_count));
+            buffer_handles.push_back(*aligned.buffer);
+            bindings.offsets[index] = 0;
+            bindings.sizes[index] = aligned_size;
+            bindings.strides[index] = aligned_stride;
+            continue;
+        }
         if (handle == VK_NULL_HANDLE) {
             bindings.offsets[index] = 0;
             bindings.sizes[index] = VK_WHOLE_SIZE;

@@ -165,6 +165,12 @@ private:
     std::shared_ptr<QuadStripIndexBuffer> quad_strip_index_buffer;
 
     vk::Buffer null_buffer;
+    struct AlignedVertexBuffer {
+        vk::Buffer buffer;
+        VkDeviceSize capacity{};
+    };
+    std::array<AlignedVertexBuffer, VideoCommon::NUM_VERTEX_BUFFERS> aligned_vertex_buffers;
+    std::unique_ptr<VertexStridePass> vertex_stride_pass;
 
     std::unique_ptr<Uint8Pass> uint8_pass;
     QuadIndexedPass quad_index_pass;

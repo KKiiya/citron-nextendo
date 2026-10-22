@@ -1,0 +1,47 @@
+#version 450
+
+layout(local_size_x = 128) in;
+
+layout(push_constant) uniform Params {
+    uint stride;
+    uint aligned_stride;
+    uint vertex_count;
+    uint source_offset;
+} params;
+
+layout(std430, binding = 0) readonly buffer SourceBuffer {
+    uint words[];
+} source_buffer;
+
+layout(std430, binding = 1) writeonly buffer DestinationBuffer {
+    uint words[];
+} destination_buffer;
+
+uint read_byte(uint byte_offset) {
+    uint word = source_buffer.words[byte_offset >> 2];
+    return (word >> ((byte_offset & 3) * 8)) & 0xff;
+}
+
+void main() {
+    uint output_word = gl_GlobalInvocationID.x;
+    uint output_byte = output_word * 4;
+    uint output_size = params.vertex_count * params.aligned_stride;
+    if (output_byte >= output_size) {
+        return;
+    }
+
+    uint packed = 0;
+    for (uint component = 0; component < 4; ++component) {
+        uint destination_byte = output_byte + component;
+        if (destination_byte >= output_size) {
+            break;
+        }
+        uint vertex = destination_byte / params.aligned_stride;
+        uint byte_in_vertex = destination_byte % params.aligned_stride;
+        uint value = byte_in_vertex < params.stride
+                         ? read_byte(params.source_offset + vertex * params.stride + byte_in_vertex)
+                         : 0;
+        packed |= value << (component * 8);
+    }
+    destination_buffer.words[output_word] = packed;
+}
