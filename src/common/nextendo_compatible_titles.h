@@ -3,18 +3,24 @@
 
 #pragma once
 
+#include <chrono>
 #include <charconv>
+#include <deque>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/common_types.h"
 
-// Required game version per title for Nextendo's servers; there's no server-side version-gate
-// endpoint, so this table is the source of truth. The installed version must be exactly this one,
-// neither older nor newer: a game update that Nextendo hasn't prepared yet must not go online.
+// Required game version per title for Nextendo's servers. The signed game catalog
+// (service-catalog/v1/game-catalog, see web_service/game_catalog) is the source of truth once a
+// verified, unexpired copy is available; the built-in table below is only the fallback until then.
+// The installed version must be exactly the required one, neither older nor newer: a game update
+// that Nextendo hasn't prepared yet must not go online.
 // The numeric comparison below only normalizes how a version is written ("1.1.1.0" == "1.1.1").
 //
 // Lives in common/, not citron/: it's read from both the Qt frontend (game-list "needs
@@ -22,7 +28,7 @@
 // Common::NextendoAccount lives here instead of in either layer alone.
 namespace Nextendo::CompatibleTitles {
 
-inline const std::unordered_map<u64, std::string>& Table() {
+inline const std::unordered_map<u64, std::string>& BuiltInTable() {
     static const std::unordered_map<u64, std::string> table{
         {0x0100152000022000, "4.0.1"},  // Mario Kart 8 Deluxe
         {0x01006a800016e000, "13.0.5"}, // Super Smash Bros. Ultimate
@@ -81,16 +87,71 @@ inline const std::unordered_map<u64, std::string>& Table() {
     return table;
 }
 
-// Versions accepted IN ADDITION to the one in Table(), for the rare title whose server handles several
+// Versions accepted IN ADDITION to the one in BuiltInTable(), for the rare title whose server handles several
 // game versions side by side. Deliberate exception to "one exact version per title": Among Us 18.0 and
 // 19.0 are separate Impostor compatibility groups and the account service does not depend on the version.
 // The UDP patch is found by code pattern, but has only been tried on 19.0, and how 18.0 writes its display
 // version is not verified.
-inline const std::unordered_map<u64, std::vector<std::string>>& AlsoAccepted() {
+inline const std::unordered_map<u64, std::vector<std::string>>& BuiltInAlsoAccepted() {
     static const std::unordered_map<u64, std::vector<std::string>> table{
         {0x0100b0c013912000, {"2026.18.0"}}, // Among Us
     };
     return table;
+}
+
+// Requirements from a verified game catalog. Published by web_service/game_catalog; read here so
+// core (the acc PID gate) never waits on the network.
+struct CatalogRequirements {
+    u64 revision{};
+    s64 expires_at{}; // Unix seconds; an expired copy no longer decides anything
+    std::unordered_map<u64, std::string> table;                     // title -> required version
+    std::unordered_map<u64, std::vector<std::string>> also_accepted; // title -> other accepted versions
+    std::unordered_set<u64> any_version; // policy "any": every version is accepted
+    std::unordered_set<u64> blocked;     // disabled, or requirements this client can't evaluate
+};
+
+namespace Detail {
+inline std::mutex& CatalogMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+// Never shrunk, so references returned by Table() stay valid after a newer catalog is published.
+inline std::deque<CatalogRequirements>& CatalogHistory() {
+    static std::deque<CatalogRequirements> history;
+    return history;
+}
+inline const CatalogRequirements* ActiveCatalog() {
+    const s64 now = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+    std::scoped_lock lock{CatalogMutex()};
+    auto& history = CatalogHistory();
+    if (history.empty() || history.back().expires_at <= now) {
+        return nullptr;
+    }
+    return &history.back();
+}
+} // namespace Detail
+
+inline void PublishCatalog(CatalogRequirements requirements) {
+    std::scoped_lock lock{Detail::CatalogMutex()};
+    Detail::CatalogHistory().push_back(std::move(requirements));
+}
+
+// Revision of the catalog currently deciding, or 0 when the built-in table is in use.
+inline u64 ActiveCatalogRevision() {
+    const auto* catalog = Detail::ActiveCatalog();
+    return catalog ? catalog->revision : 0;
+}
+
+inline const std::unordered_map<u64, std::string>& Table() {
+    const auto* catalog = Detail::ActiveCatalog();
+    return catalog ? catalog->table : BuiltInTable();
+}
+
+inline const std::unordered_map<u64, std::vector<std::string>>& AlsoAccepted() {
+    const auto* catalog = Detail::ActiveCatalog();
+    return catalog ? catalog->also_accepted : BuiltInAlsoAccepted();
 }
 
 // Splits a display version ("4.0.1", "01.50", "2.7.7.92380") into its numeric parts. Anything
@@ -143,7 +204,14 @@ inline std::optional<int> CompareVersions(std::string_view lhs, std::string_view
 // matches "1.1.1" and "01.50" matches "1.50"). An unknown version (empty) is let through, as
 // before; a version that can't be compared numerically must match the table text exactly.
 inline bool IsVersionOk(u64 program_id, const std::string& installed_version) {
-    const auto& table = Table();
+    const auto* catalog = Detail::ActiveCatalog();
+    if (catalog && catalog->blocked.contains(program_id)) {
+        return false;
+    }
+    if (catalog && catalog->any_version.contains(program_id)) {
+        return true;
+    }
+    const auto& table = catalog ? catalog->table : BuiltInTable();
     const auto it = table.find(program_id);
     if (it == table.end()) {
         return true;
@@ -155,8 +223,9 @@ inline bool IsVersionOk(u64 program_id, const std::string& installed_version) {
     if (order.has_value() && *order == 0) {
         return true;
     }
-    const auto extra = AlsoAccepted().find(program_id);
-    if (extra != AlsoAccepted().end()) {
+    const auto& also_accepted = catalog ? catalog->also_accepted : BuiltInAlsoAccepted();
+    const auto extra = also_accepted.find(program_id);
+    if (extra != also_accepted.end()) {
         for (const std::string& accepted : extra->second) {
             const auto extra_order = CompareVersions(installed_version, accepted);
             if (installed_version == accepted || (extra_order.has_value() && *extra_order == 0)) {

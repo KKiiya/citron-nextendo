@@ -609,7 +609,8 @@ std::string PushSave(const std::string& title_id_hex, std::span<const u8> data) 
 std::map<std::string, int> GetOnlineCounts() {
     std::map<std::string, int> out;
 
-    const auto result = Send("GET", "/api/online-counts", {}, {});
+    // Aggregate counts of every title in the signed game catalog (one shared, cacheable document).
+    const auto result = Send("GET", "/service-catalog/v1/online-counts", {}, {});
     if (!result || result->status != 200) {
         LOG_WARNING(WebService, "Nextendo online-counts fetch failed (HTTP {})",
                     result ? result->status : 0);

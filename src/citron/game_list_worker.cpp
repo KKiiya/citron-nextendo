@@ -26,6 +26,7 @@
 #include "citron/game_list.h"
 #include "citron/game_list_p.h"
 #include "citron/game_list_worker.h"
+#include "citron/nextendo_online_counts.h"
 #include "common/nextendo_compatible_titles.h"
 #include "citron/uisettings.h"
 #include "common/fs/fs.h"
@@ -506,6 +507,9 @@ QList<QStandardItem*> MakeGameListEntry(const std::string& path, const std::stri
             : GetGameListCachedObject(fmt::format("{:016X}", program_id), "nx_version.txt",
                                       read_installed_version);
     path_item->setData(installed_version, GameListItemPath::VersionRole);
+    if (Nextendo::CompatibleTitles::Table().contains(program_id)) {
+        Nextendo::OnlineCounts::NoteInstalled(program_id);
+    }
 
     QList<QStandardItem*> list{path_item,
                                new GameListItemCompat(compatibility),

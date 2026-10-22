@@ -37,6 +37,7 @@
 #include "citron/nextendo_save_sync.h"
 
 #ifdef ENABLE_WEB_SERVICE
+#include "web_service/game_catalog.h"
 #include "web_service/nextendo_api.h"
 #include "web_service/npln_patch_catalog.h"
 #endif
@@ -47,6 +48,7 @@ NextendoController::NextendoController(Core::System& system_, QWidget* main_wind
       game_invites(new NextendoGameInvites(system_, this)) {
 #ifdef ENABLE_WEB_SERVICE
     WebService::NplnPatchCatalog::StartTitleIndexCheck();
+    WebService::GameCatalog::Start();
     Common::NextendoFriends::SetNameResolver(&WebService::NextendoApi::GetNameByPid);
 #endif
     friend_poll_timer.setInterval(20000);
